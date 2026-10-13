@@ -1,0 +1,6 @@
+paramiko>=3.5,<5
+cryptography>=41
+pyte>=0.8
+PySide6-Essentials>=6.8,<7
+pyobjc-framework-LocalAuthentication>=10; sys_platform == "darwin"
+pyinstaller>=6.10,<7

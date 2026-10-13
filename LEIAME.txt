@@ -1,0 +1,101 @@
+==============================================================
+  MacSCP - Cliente SFTP/SSH para macOS (estilo WinSCP)
+==============================================================
+
+O QUE É
+-------
+App nativo para macOS para transferir arquivos entre o seu Mac e
+servidores via SFTP/SSH: arrastar e soltar, várias conexões em abas,
+favoritos com Touch ID, editor de texto, permissões (chmod) e
+console SSH completo.
+
+
+ANTES DE COMEÇAR
+----------------
+- macOS com Python 3 instalado.
+  Se o Mac nunca teve as ferramentas de desenvolvedor, abra o Terminal
+  e rode:   xcode-select --install
+  (e siga a janela que aparecer).
+- Conexão com a internet (o instalador baixa as bibliotecas necessárias).
+
+
+INSTALAÇÃO
+----------
+1. Baixe o MacSCP
+   No GitHub, clique em "Code" > "Download ZIP".
+
+2. Descompacte
+   Dê dois cliques no arquivo .zip baixado (normalmente ele fica na
+   pasta Downloads). Vai aparecer a pasta "MacSCP-main", e dentro
+   dela a pasta "macos_app".
+
+3. Abra o Terminal
+   Aplicativos > Utilitários > Terminal
+   (ou pressione Cmd + Espaço, digite "Terminal" e tecle Enter).
+
+4. Entre na pasta macos_app
+   Digite "cd " (com um espaço no final), arraste a pasta macos_app
+   do Finder para dentro da janela do Terminal e tecle Enter.
+   Exemplo:
+       cd ~/Downloads/MacSCP-main/macos_app
+
+5. Dê permissão de execução ao instalador:
+       chmod +x build_macos.sh
+
+6. Rode o instalador:
+       ./build_macos.sh
+
+   Aguarde alguns minutos. No final aparece:
+       Autoteste do app:
+         Touch ID: OK
+         Cofre de senhas: OK
+       Aplicativo criado em: .../macos_app/dist/MacSCP.app
+
+
+LIBERAR A REDE LOCAL (obrigatório para IPs locais / ZeroTier / VPN)
+-------------------------------------------------------------------
+7. Abra Ajustes do Sistema > Privacidade e Segurança > Rede Local
+   e ative o MacSCP.
+
+   Obs.: se o MacSCP ainda não aparecer na lista, abra o app e tente
+   conectar em um servidor uma vez. O macOS pergunta se pode acessar
+   a rede local (clique em "Permitir") ou passa a mostrar o MacSCP
+   na lista.
+
+
+ABRIR O APP
+-----------
+8. Na pasta MacSCP-main/macos_app que você descompactou, entre na pasta "dist"
+   e dê dois cliques em MacSCP.
+
+9. Se preferir, arraste o MacSCP.app para a pasta Aplicativos, para
+   abrir pelo Launchpad ou pelo Spotlight (Cmd + Espaço > "MacSCP").
+
+
+DICAS RÁPIDAS
+-------------
+- Nova conexão: botão "+ Nova conexão" (cada servidor abre em uma aba).
+- Favoritos: salve servidor, usuário e senha. Depois é só usar o Touch ID.
+- Arraste arquivos entre os painéis, ou solte em cima de uma pasta.
+- Botão direito: nova pasta, novo arquivo, editar, renomear,
+  permissões, excluir...
+- Dois cliques em um arquivo de texto abrem o editor (Cmd + S salva
+  direto no servidor).
+- Console SSH: terminal completo. O comando "exit" fecha a janela.
+
+
+ATUALIZAR PARA UMA VERSÃO NOVA
+------------------------------
+Baixe e descompacte a versão nova e repita os passos 3 a 6.
+Os favoritos e as senhas salvas continuam (ficam em
+~/Library/Application Support/MacSCP).
+
+
+PROBLEMAS COMUNS
+----------------
+- "Unable to connect" ou "o macOS bloqueou o acesso" em IP local/ZeroTier:
+  confira o passo 7 (Rede Local).
+- "Python 3.9+ não encontrado": rode   xcode-select --install
+  ou instale com   brew install python@3.12
+- O macOS diz que o app "não pode ser aberto": clique com o botão
+  direito no MacSCP > Abrir > Abrir.
