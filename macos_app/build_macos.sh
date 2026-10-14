@@ -43,7 +43,9 @@ APP="$PWD/dist/MacSCP.app"
 PLIST="$APP/Contents/Info.plist"
 # Permissão de Rede Local (macOS 15+): sem isso o app não alcança IPs privados (ZeroTier, LAN, 10.x, 192.168.x)
 plutil -replace NSLocalNetworkUsageDescription -string "O MacSCP precisa acessar a rede local/VPN para conectar aos seus servidores SSH/SFTP." "$PLIST"
-plutil -replace CFBundleShortVersionString -string "1.0.0" "$PLIST"
+VERSION="$(sed -n 's/^APP_VERSION = "\([^"]*\)".*/\1/p' main.py | head -1)"   # versão vem do main.py
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$PLIST"
+plutil -replace CFBundleVersion -string "$VERSION" "$PLIST"
 # Reassina (ad-hoc) depois de alterar o Info.plist. Não pede senha nenhuma.
 codesign --force --deep --sign - "$APP"
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true

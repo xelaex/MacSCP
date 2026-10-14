@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QMimeData, QThread, Signal, QUrl, QTimer, QFile
 from PySide6.QtGui import (QDrag, QAction, QKeySequence, QBrush, QColor, QIcon, QPixmap, QPainter, QFont, QPalette,
                            QTextDocument, QTextCursor)
 from PySide6.QtCore import QFileInfo, QByteArray, QSize, QRect, QRegularExpression, QPointF, QRectF, QEvent
-from PySide6.QtGui import QRegularExpressionValidator, QFontMetricsF, QResizeEvent
+from PySide6.QtGui import QRegularExpressionValidator, QFontMetricsF, QResizeEvent, QDesktopServices
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox,
@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM   # já vem com o paramiko
 
 APP_NAME = "MacSCP"
+APP_VERSION = "1.1.0"          # única fonte da versão (o build lê daqui)
+APP_AUTHOR = "Xela"
+APP_URL = "https://github.com/xelaex/MacSCP"
 MIME_PATHS = "application/x-macscp-paths"   # JSON: {"session": id, "side": "local|remote", "paths": [...]}
 PATH_ROLE = Qt.UserRole
 ISDIR_ROLE = Qt.UserRole + 1
@@ -465,36 +468,121 @@ def check_tcp(host, port, timeout=8):
         raise RuntimeError(f"Não foi possível abrir conexão com {host}:{port}: {e.strerror or e}")
 
 
+def key_fingerprint(key):
+    return 'SHA256:' + base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
+
+
+def known_hosts_name(host, port):
+    return host if port == 22 else f"[{host}]:{port}"
+
+
+def known_hosts_set(path, host, port, key):
+    """Grava a chave do servidor no known_hosts mexendo SÓ nas linhas desse servidor.
+    Remove as chaves antigas dele (texto ou hash) e acrescenta a nova; o resto do arquivo fica intacto."""
+    name = known_hosts_name(host, port)
+
+    def same_host(entry):
+        if entry.startswith("|1|"):
+            try: return paramiko.HostKeys.hash_host(name, entry) == entry
+            except Exception: return False
+        return entry == name
+
+    lines = []
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8", errors="surrogateescape") as f: lines = f.read().splitlines()
+    out = []
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith("#") and not s.startswith("@"):
+            fields = s.split(None, 1)
+            hosts = fields[0].split(",")
+            keep = [h for h in hosts if not same_host(h)]
+            if len(keep) != len(hosts):
+                if not keep: continue                       # linha só desse servidor → sai
+                line = ",".join(keep) + (" " + fields[1] if len(fields) > 1 else "")
+        out.append(line)
+    out.append(f"{name} {key.get_name()} {key.get_base64()}")
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    tmp = path + ".macscp-tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape") as f: f.write("\n".join(out) + "\n")
+    os.replace(tmp, path)
+
+
+def load_known_hosts_safe(client, path):
+    """Lê o known_hosts linha por linha, ignorando o que o paramiko não entende
+    (@cert-authority, @revoked, tipos de chave novos do OpenSSH, linhas com defeito).
+    Sem isso, UMA linha estranha faz o paramiko recusar o arquivo inteiro."""
+    if not os.path.exists(path): return
+    hk = client.get_host_keys()
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            s = line.strip()
+            if not s or s.startswith("#") or s.startswith("@"): continue
+            try:
+                entry = paramiko.hostkeys.HostKeyEntry.from_line(s)
+            except Exception:
+                continue
+            if entry is None or entry.key is None: continue
+            for name in entry.hostnames:
+                try: hk.add(name, entry.key.get_name(), entry.key)
+                except Exception: pass
+
+
+def fetch_server_key(host, port):
+    transport = paramiko.Transport((host, port)); transport.banner_timeout = 12
+    try:
+        transport.start_client(timeout=12); return transport.get_remote_server_key()
+    finally:
+        transport.close()
+
+
 def open_ssh(parent, host, port, user, password):
-    """Abre SSHClient verificando a chave do servidor (pergunta na primeira vez)."""
+    """Abre SSHClient verificando a chave do servidor.
+    Chave nova → pergunta e grava. Chave diferente da gravada → avisa, mostra antiga e nova e, se aceitar, atualiza."""
     known = os.path.expanduser('~/.ssh/known_hosts'); os.makedirs(os.path.dirname(known), mode=0o700, exist_ok=True)
-    client = paramiko.SSHClient(); client.load_system_host_keys()
     use_keys = not password
     opts = dict(hostname=host, port=port, username=user, password=password or None, timeout=12, banner_timeout=12,
                 auth_timeout=15, allow_agent=use_keys, look_for_keys=use_keys)
-    try:
-        check_tcp(host, port)
-        if os.path.exists(known): client.load_host_keys(known)
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    check_tcp(host, port)
+    for attempt in range(2):
+        client = paramiko.SSHClient()
         try:
+            load_known_hosts_safe(client, known)
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
             client.connect(**opts)
+            return client
+        except paramiko.BadHostKeyException as exc:
+            client.close()
+            if attempt: raise
+            new, old = exc.key, exc.expected_key
+            box = QMessageBox(QMessageBox.Warning, "A chave do servidor mudou",
+                              f"A chave SSH de {host}:{port} é diferente da que estava gravada neste Mac.",
+                              QMessageBox.Yes | QMessageBox.No, parent)
+            box.setInformativeText(
+                "Isso é normal se o servidor foi reinstalado/formatado, se esse IP agora é de outra máquina "
+                "ou se a chave foi trocada. Se nada disso aconteceu, pode ser alguém interceptando a conexão.\n\n"
+                f"Chave gravada:  {old.get_name()}  {key_fingerprint(old)}\n"
+                f"Chave nova:     {new.get_name()}  {key_fingerprint(new)}\n\n"
+                "Atualizar o known_hosts com a chave nova e conectar?")
+            box.button(QMessageBox.Yes).setText("Atualizar e conectar"); box.button(QMessageBox.No).setText("Cancelar")
+            box.setDefaultButton(QMessageBox.No)
+            if box.exec() != QMessageBox.Yes: raise RuntimeError("Chave SSH alterada não foi aceita.")
+            known_hosts_set(known, host, port, new)
         except paramiko.SSHException as exc:
-            if 'not found in known_hosts' not in str(exc).lower(): raise
-            transport = paramiko.Transport((host, port)); transport.banner_timeout = 12
-            transport.start_client(timeout=12); key = transport.get_remote_server_key(); transport.close()
-            fingerprint = 'SHA256:' + base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
+            client.close()
+            if attempt or 'not found in known_hosts' not in str(exc).lower(): raise
+            key = fetch_server_key(host, port)
             answer = QMessageBox.question(
                 parent, "Confirmar chave SSH",
-                f"Servidor: {host}:{port}\nTipo: {key.get_name()}\nImpressão digital: {fingerprint}\n\n"
+                f"Servidor: {host}:{port}\nTipo: {key.get_name()}\nImpressão digital: {key_fingerprint(key)}\n\n"
                 "Confirme com o administrador do servidor por um canal confiável. Deseja confiar nesta chave?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if answer != QMessageBox.Yes: raise RuntimeError("Chave SSH não confirmada.")
-            client.get_host_keys().add(f"[{host}]:{port}" if port != 22 else host, key.get_name(), key)
-            client.save_host_keys(known); os.chmod(known, 0o600)
-            client.connect(**opts)
-        return client
-    except Exception:
-        client.close(); raise
+            known_hosts_set(known, host, port, key)
+        except Exception:
+            client.close(); raise
+    raise RuntimeError("Não foi possível validar a chave do servidor.")
 
 
 class TerminalReader(QThread):
@@ -1893,11 +1981,60 @@ class Session(QWidget):
         self.load_local()
 
 
+
+class AboutDialog(QDialog):
+    """Sobre o MacSCP."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent); self.setWindowTitle(f"Sobre o {APP_NAME}"); self.setFixedWidth(420)
+        lay = QVBoxLayout(self); lay.setSpacing(6); lay.setContentsMargins(28, 24, 28, 18)
+        icon = QLabel(); icon.setPixmap(Icons.get().folder.pixmap(84, 84)); icon.setAlignment(Qt.AlignCenter)
+        name = QLabel(f"<span style='font-size:22pt; font-weight:600'>{APP_NAME}</span>"); name.setAlignment(Qt.AlignCenter)
+        ver = QLabel(f"Versão {APP_VERSION}"); ver.setAlignment(Qt.AlignCenter)
+        ver.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        desc = QLabel("Cliente SFTP/SSH nativo para macOS — o “WinSCP do Mac”."); desc.setAlignment(Qt.AlignCenter); desc.setWordWrap(True)
+        feats = QLabel("Arrastar e soltar • várias conexões em abas<br>"
+                       "favoritos com Touch ID • editor de texto<br>"
+                       "permissões (chmod) • console SSH completo")
+        feats.setAlignment(Qt.AlignCenter); feats.setWordWrap(True); feats.setStyleSheet("color: gray")
+        link = QLabel(f"<a href='{APP_URL}'>{APP_URL.replace('https://', '')}</a>"); link.setAlignment(Qt.AlignCenter)
+        link.setOpenExternalLinks(True)
+        try:
+            import PySide6
+            from PySide6.QtCore import qVersion
+            pyside = f"PySide6 {PySide6.__version__} (Qt {qVersion()})"
+        except Exception:
+            pyside = "PySide6"
+        try:
+            from importlib.metadata import version as _pkg_version
+            pyte_v = _pkg_version("pyte")
+        except Exception:
+            pyte_v = ""
+        tech = QLabel(f"Python {sys.version.split()[0]} • {pyside}<br>paramiko {paramiko.__version__} • pyte {pyte_v}".strip())
+        tech.setAlignment(Qt.AlignCenter); tech.setStyleSheet("color: gray; font-size: 11px")
+        copy_ = QLabel(f"© {time.strftime('%Y')} {APP_AUTHOR}. Feito no Brasil 🇧🇷"); copy_.setAlignment(Qt.AlignCenter)
+        copy_.setStyleSheet("color: gray; font-size: 11px")
+        for wdg in (icon, name, ver):
+            lay.addWidget(wdg)
+        lay.addSpacing(8)
+        for wdg in (desc, feats, link):
+            lay.addWidget(wdg)
+        lay.addSpacing(10); lay.addWidget(tech); lay.addWidget(copy_); lay.addSpacing(8)
+        ok = QPushButton("OK"); ok.setDefault(True); ok.clicked.connect(self.accept)
+        bl = QHBoxLayout(); bl.addStretch(1); bl.addWidget(ok); bl.addStretch(1); lay.addLayout(bl)
+
+
 # ============================================================================= janela principal
 
 class MainWindow(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle(APP_NAME); self.resize(1240, 760)
+        super().__init__(); self.setWindowTitle(f"{APP_NAME} {APP_VERSION}"); self.resize(1240, 760)
+        # menu: no macOS “Sobre o MacSCP” vai automaticamente para o menu do app (MacSCP ▸ Sobre o MacSCP)
+        help_menu = self.menuBar().addMenu("Ajuda")
+        about = QAction(f"Sobre o {APP_NAME}", self); about.setMenuRole(QAction.AboutRole)
+        about.triggered.connect(lambda: AboutDialog(self).exec()); help_menu.addAction(about)
+        gh = QAction("Página do MacSCP no GitHub", self); gh.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(APP_URL)))
+        help_menu.addAction(gh)
         self.favorites = Favorites()
         root = QWidget(); self.setCentralWidget(root); layout = QVBoxLayout(root)
 
@@ -2061,7 +2198,7 @@ def self_test():
 
 def main():
     if "--self-test" in sys.argv: sys.exit(self_test())
-    app = QApplication(sys.argv); app.setApplicationName(APP_NAME)
+    app = QApplication(sys.argv); app.setApplicationName(APP_NAME); app.setApplicationVersion(APP_VERSION)
     win = MainWindow(); win.show(); sys.exit(app.exec())
 
 
