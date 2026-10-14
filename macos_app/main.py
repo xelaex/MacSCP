@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MacSCP — cliente SFTP nativo para macOS (estilo WinSCP). Não inicia servidor web."""
 import os, sys, stat, json, shutil, hashlib, base64, posixpath, time, uuid, subprocess, socket, errno, ipaddress, threading
-import copy, math
+import copy, math, re
 from collections import deque
 from pathlib import Path
 
@@ -11,7 +11,8 @@ from PySide6.QtCore import Qt, QMimeData, QThread, Signal, QUrl, QTimer, QFile
 from PySide6.QtGui import (QDrag, QAction, QKeySequence, QBrush, QColor, QIcon, QPixmap, QPainter, QFont, QPalette,
                            QTextDocument, QTextCursor)
 from PySide6.QtCore import QFileInfo, QByteArray, QSize, QRect, QRegularExpression, QPointF, QRectF, QEvent
-from PySide6.QtGui import QRegularExpressionValidator, QFontMetricsF, QResizeEvent, QDesktopServices
+from PySide6.QtGui import QRegularExpressionValidator, QFontMetricsF, QResizeEvent, QDesktopServices, QActionGroup
+from PySide6.QtCore import QProcess, QTranslator, QLibraryInfo
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox,
@@ -23,9 +24,314 @@ from PySide6.QtWidgets import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM   # já vem com o paramiko
 
 APP_NAME = "MacSCP"
-APP_VERSION = "1.1.0"          # única fonte da versão (o build lê daqui)
+APP_VERSION = "1.2.1"          # única fonte da versão (o build lê daqui)
 APP_AUTHOR = "Xela"
 APP_URL = "https://github.com/xelaex/MacSCP"
+
+
+
+def resource_path(name):
+    """Arquivo que vai junto com o app (funciona rodando o .py ou o .app gerado pelo PyInstaller)."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, name)
+
+
+def app_icon():
+    p = resource_path("MacSCP_icon.png")
+    return QIcon(p) if os.path.exists(p) else QIcon()
+
+
+# ============================================================================= idiomas (Português / English)
+
+LANG = "pt"          # definido em main() a partir da preferência salva (ou do idioma do Mac)
+LANGUAGES = (("pt", "Português (Brasil)"), ("en", "English"))
+
+TR_EN = {
+ "só existe no macOS": "macOS only",
+ "módulo LocalAuthentication ausente no app ({0})": "LocalAuthentication module missing from the app ({0})",
+ "não disponível": "not available",
+ "usar a senha salva de “{0}”": "use the saved password for “{0}”",
+ "Desbloquear favoritos": "Unlock favorites",
+ "Touch ID indisponível ({0}).\nDigite a senha do seu usuário do Mac para usar as senhas salvas:": "Touch ID unavailable ({0}).\nEnter your Mac user password to use the saved passwords:",
+ "Senha incorreta": "Wrong password",
+ "Senha do Mac incorreta.": "Incorrect Mac password.",
+ "Nova conexão SSH/SFTP": "New SSH/SFTP connection",
+ "192.168.1.100 ou host.example": "192.168.1.100 or host.example",
+ "vazio = usar chave SSH (~/.ssh)": "empty = use SSH key (~/.ssh)",
+ "opcional, ex.: /var/www": "optional, e.g. /var/www",
+ "Servidor / IP": "Server / IP",
+ "Porta": "Port",
+ "Usuário": "User",
+ "Senha SSH": "SSH password",
+ "Pasta remota inicial": "Initial remote folder",
+ "Salvar nos favoritos": "Save to favorites",
+ "Nome do favorito (ex.: Raspberry)": "Favorite name (e.g. Raspberry)",
+ "Salvar senha (protegida por Touch ID)": "Save password (protected by Touch ID)",
+ "Nome": "Name",
+ "Conectar": "Connect",
+ "Favoritos": "Favorites",
+ "＋ Novo": "＋ New",
+ "Excluir": "Delete",
+ "vazio = usar chave SSH": "empty = use SSH key",
+ "opcional": "optional",
+ "…": "…",
+ "Senha": "Password",
+ "Pasta local inicial": "Initial local folder",
+ "Salvar": "Save",
+ "Fechar": "Close",
+ "🔒 senha salva — deixe vazio para manter": "🔒 password saved — leave empty to keep it",
+ "vazio = perguntar ao conectar / usar chave SSH": "empty = ask when connecting / use SSH key",
+ "Dados incompletos": "Missing information",
+ "Informe pelo menos servidor e usuário.": "Enter at least the server and user.",
+ "Senha não salva": "Password not saved",
+ "O favorito foi salvo, mas a senha não:\n{0}": "The favorite was saved, but the password was not:\n{0}",
+ "Excluir favorito": "Delete favorite",
+ "Excluir “{0}” e a senha salva?": "Delete “{0}” and its saved password?",
+ "Não encontrei o servidor “{0}”. Confira o nome/IP.": "Server “{0}” not found. Check the name/IP.",
+ "Tempo esgotado ao conectar em {0}:{1}.\n\nO servidor não respondeu: pode estar desligado, fora da VPN (ZeroTier/Tailscale) ou com firewall bloqueando a porta.": "Timed out connecting to {0}:{1}.\n\nThe server did not respond: it may be off, outside the VPN (ZeroTier/Tailscale) or behind a firewall blocking the port.",
+ "{0} recusou a conexão na porta {1}.\n\nO servidor está acessível, mas o SSH não está rodando nessa porta (confira a porta e o serviço ssh).": "{0} refused the connection on port {1}.\n\nThe server is reachable, but SSH is not running on that port (check the port and the ssh service).",
+ "O macOS bloqueou o acesso a {0} (rede local/VPN).\n\nProvável causa: o MacSCP não tem permissão de Rede Local.\nAbra Ajustes do Sistema → Privacidade e Segurança → Rede Local e ative o MacSCP.\nSe ele não aparecer na lista, gere o app de novo com o build_macos.command atualizado.\n\nSe continuar, teste no Terminal:  nc -vz {1} {2}\n(erro do sistema: {3})": "macOS blocked access to {0} (local network/VPN).\n\nLikely cause: MacSCP does not have Local Network permission.\nOpen System Settings → Privacy & Security → Local Network and turn MacSCP on.\nIf it is not in the list, rebuild the app with the updated build_macos.command.\n\nIf it still fails, test in Terminal:  nc -vz {1} {2}\n(system error: {3})",
+ "Sem rota até {0}. Confira se a VPN (ZeroTier/Tailscale) está conectada e se este Mac está autorizado na rede.\n\n(erro do sistema: {1})": "No route to {0}. Check that the VPN (ZeroTier/Tailscale) is connected and that this Mac is authorized on the network.\n\n(system error: {1})",
+ "Não foi possível abrir conexão com {0}:{1}: {2}": "Could not open a connection to {0}:{1}: {2}",
+ "A chave do servidor mudou": "The server key has changed",
+ "A chave SSH de {0}:{1} é diferente da que estava gravada neste Mac.": "The SSH key of {0}:{1} is different from the one saved on this Mac.",
+ "Isso é normal se o servidor foi reinstalado/formatado, se esse IP agora é de outra máquina ou se a chave foi trocada. Se nada disso aconteceu, pode ser alguém interceptando a conexão.\n\nChave gravada:  {0}  {1}\nChave nova:     {2}  {3}\n\nAtualizar o known_hosts com a chave nova e conectar?": "This is normal if the server was reinstalled/reformatted, if this IP now belongs to another machine or if the key was changed. If none of that happened, someone may be intercepting the connection.\n\nSaved key:  {0}  {1}\nNew key:    {2}  {3}\n\nUpdate known_hosts with the new key and connect?",
+ "Atualizar e conectar": "Update and connect",
+ "Cancelar": "Cancel",
+ "Chave SSH alterada não foi aceita.": "The changed SSH key was not accepted.",
+ "Confirmar chave SSH": "Confirm SSH key",
+ "Servidor: {0}:{1}\nTipo: {2}\nImpressão digital: {3}\n\nConfirme com o administrador do servidor por um canal confiável. Deseja confiar nesta chave?": "Server: {0}:{1}\nType: {2}\nFingerprint: {3}\n\nConfirm it with the server administrator through a trusted channel. Do you want to trust this key?",
+ "Chave SSH não confirmada.": "SSH key not confirmed.",
+ "Não foi possível validar a chave do servidor.": "Could not validate the server key.",
+ "\r\n\u001b[90m[Sessão encerrada — pode fechar a janela]\u001b[0m\r\n": "\r\n\u001b[90m[Session ended — you can close the window]\u001b[0m\r\n",
+ "Copiar": "Copy",
+ "Colar": "Paste",
+ "Selecionar tudo": "Select all",
+ "Limpar": "Clear",
+ "Aumentar fonte": "Bigger font",
+ "Diminuir fonte": "Smaller font",
+ "Console SSH — {0}": "SSH Console — {0}",
+ "Não foi possível abrir o console: {0}\r\n": "Could not open the console: {0}\r\n",
+ "Analisando arquivos…": "Scanning files…",
+ "O destino já existe e não é pasta: {0}": "The destination already exists and is not a folder: {0}",
+ "Transferência concluída": "Transfer complete",
+ "Transferência cancelada": "Transfer cancelled",
+ "Erro: {0}": "Error: {0}",
+ "Preparando…": "Preparing…",
+ "{0} de {1}  •  {2}/s  •  faltam ~{3}min {4}s": "{0} of {1}  •  {2}/s  •  ~{3}min {4}s left",
+ "Cancelando…": "Cancelling…",
+ "Buscar…  (Enter = próximo, ⇧Enter = anterior)": "Find…  (Enter = next, ⇧Enter = previous)",
+ "Diferenciar maiúsculas/minúsculas": "Match case",
+ "Buscar:": "Find:",
+ "Computador local": "Local computer",
+ "Linha {0}, Coluna {1}  ": "Line {0}, Column {1}  ",
+ "“{0}” não encontrado": "“{0}” not found",
+ "A conexão com o servidor foi encerrada. Reconecte para salvar.": "The connection to the server was closed. Reconnect to save.",
+ "Sem permissão": "Permission denied",
+ "Seu usuário não tem permissão para gravar em:\n{0}": "Your user does not have permission to write to:\n{0}",
+ "Não foi possível salvar": "Could not save",
+ "Arquivo alterado por fora": "File changed elsewhere",
+ "Este arquivo foi modificado depois que você o abriu (por outra pessoa ou programa).\n\nSalvar mesmo assim e sobrescrever essas alterações?": "This file was modified after you opened it (by someone else or another program).\n\nSave anyway and overwrite those changes?",
+ "Alterações não salvas": "Unsaved changes",
+ "Salvar as alterações em “{0}”?": "Save changes to “{0}”?",
+ "Permissões": "Permissions",
+ "Ler": "Read",
+ "Gravar": "Write",
+ "Executar": "Execute",
+ "Dono": "Owner",
+ "Grupo": "Group",
+ "Outros": "Others",
+ "Octal:": "Octal:",
+ "Rápido:": "Quick:",
+ "arquivo comum": "regular file",
+ "script/executável": "script/executable",
+ "privado": "private",
+ "grupo grava": "group can write",
+ "Aplicar": "Apply",
+ "Tamanho": "Size",
+ "Modificado": "Modified",
+ "Sem conexão": "Not connected",
+ "<b>Computador local</b>": "<b>Local computer</b>",
+ "Escolher pasta": "Choose folder",
+ "＋ Nova pasta": "＋ New folder",
+ "Criar pasta (⇧⌘N)": "Create folder (⇧⌘N)",
+ "Excluir selecionados (⌫)": "Delete selected (⌫)",
+ "Pasta acima": "Parent folder",
+ "<b>Servidor remoto</b>": "<b>Remote server</b>",
+ "Criar pasta no servidor": "Create folder on the server",
+ "Excluir selecionados no servidor (⌫)": "Delete selected on the server (⌫)",
+ "Não conectado — use “Nova conexão” ou “Favoritos”": "Not connected — use “New connection” or “Favorites”",
+ "Esta aba não está conectada a um servidor.": "This tab is not connected to a server.",
+ "Falha na conexão": "Connection failed",
+ "Não foi possível conectar em {0}.\n\n{1}": "Could not connect to {0}.\n\n{1}",
+ "Pasta remota inicial não encontrada: {0}": "Initial remote folder not found: {0}",
+ "<b>Servidor:</b> {0}@{1}:{2}": "<b>Server:</b> {0}@{1}:{2}",
+ "Transferências em andamento": "Transfers in progress",
+ "Há {0} transferência(s) em andamento nesta conexão. Cancelar e desconectar?": "There are {0} transfer(s) in progress on this connection. Cancel and disconnect?",
+ "Não conectado": "Not connected",
+ "Console SSH": "SSH Console",
+ "Esta aba não está conectada.": "This tab is not connected.",
+ "Escolher pasta local": "Choose local folder",
+ "Solte arquivos aqui para colocá-los dentro desta pasta": "Drop files here to put them inside this folder",
+ "Erro ao listar pasta local: {0}": "Error listing local folder: {0}",
+ "Erro ao listar servidor: {0}": "Error listing server: {0}",
+ "Abrir": "Open",
+ "Nova pasta dentro de “%s”": "New folder inside “%s”",
+ "Novo arquivo dentro de “%s”": "New file inside “%s”",
+ "Nova pasta aqui…": "New folder here…",
+ "Novo arquivo de texto aqui…": "New text file here…",
+ "Enviar para o servidor  →": "Upload to server  →",
+ "←  Baixar para o computador": "←  Download to computer",
+ "✏️  Editar": "✏️  Edit",
+ "Abrir com o app padrão": "Open with default app",
+ "🔐  Permissões…": "🔐  Permissions…",
+ "Renomear…": "Rename…",
+ "Mostrar no Finder": "Show in Finder",
+ "Excluir “%s”": "Delete “%s”",
+ "Excluir {0} itens": "Delete {0} items",
+ "Atualizar": "Refresh",
+ "Não foi possível abrir: {0}": "Could not open: {0}",
+ "Não é um arquivo comum.": "Not a regular file.",
+ "Arquivo grande": "Large file",
+ "“{0}” tem {1}. Abrir no editor mesmo assim?": "“{0}” is {1}. Open it in the editor anyway?",
+ "Não foi possível abrir": "Could not open",
+ "Arquivo binário": "Binary file",
+ "“{0}” não é um arquivo de texto, então não dá para editar aqui.\nBaixe para o computador para abrir com outro app.": "“{0}” is not a text file, so it cannot be edited here.\nDownload it to your computer to open it with another app.",
+ "Não foi possível abrir o Finder: {0}": "Could not open Finder: {0}",
+ "Nova pasta": "New folder",
+ "Nome da nova pasta em:\n{0}": "Name of the new folder in:\n{0}",
+ "Nome inválido": "Invalid name",
+ "Use um nome sem “/” e diferente de “.” ou “..”.": "Use a name without “/” that is not “.” or “..”.",
+ "Já existe um item chamado “{0}”.": "An item named “{0}” already exists.",
+ "Já existe um item chamado “{0}” no servidor.": "An item named “{0}” already exists on the server.",
+ "Não foi possível criar a pasta": "Could not create the folder",
+ "Pasta criada: {0}": "Folder created: {0}",
+ "Novo arquivo": "New file",
+ "Nome do novo arquivo em:\n{0}": "Name of the new file in:\n{0}",
+ "novo.txt": "new.txt",
+ "Não foi possível criar o arquivo": "Could not create the file",
+ "Arquivo criado: {0}": "File created: {0}",
+ "Não foi possível ler as permissões:\n{0}": "Could not read the permissions:\n{0}",
+ "Dono: {0}  •  Grupo: {1}": "Owner: {0}  •  Group: {1}",
+ "Dono (uid): {0}  •  Grupo (gid): {1}": "Owner (uid): {0}  •  Group (gid): {1}",
+ "sem permissão (só o dono do arquivo ou o root pode alterar)": "permission denied (only the file owner or root can change it)",
+ "Permissões não alteradas": "Permissions not changed",
+ "Permissões {0} aplicadas em {1} arquivo(s).": "Permissions {0} applied to {1} file(s).",
+ "Renomear": "Rename",
+ "Novo nome:": "New name:",
+ "Não foi possível renomear": "Could not rename",
+ "Selecione um arquivo ou pasta para excluir.": "Select a file or folder to delete.",
+ "\n…": "\n…",
+ "Mover para o Lixo {0} item(ns)?\n\n{1}": "Move {0} item(s) to the Trash?\n\n{1}",
+ "Excluir DEFINITIVAMENTE do servidor {0} item(ns)?\n\n{1}": "PERMANENTLY delete {0} item(s) from the server?\n\n{1}",
+ "\n\nPastas serão apagadas com todo o conteúdo.": "\n\nFolders will be deleted with all their contents.",
+ "\n\nEssa ação não pode ser desfeita.": "\n\nThis cannot be undone.",
+ "Confirmar exclusão": "Confirm deletion",
+ "Alguns itens não foram excluídos": "Some items were not deleted",
+ "{0} item(ns) excluído(s).": "{0} item(s) deleted.",
+ "Lixo indisponível": "Trash unavailable",
+ "Não foi possível mover para o Lixo:\n{0}\n\nApagar definitivamente?": "Could not move to the Trash:\n{0}\n\nDelete permanently?",
+ "Destino existente": "Destination exists",
+ "Já existe um item chamado “{0}” {1}.\nPastas serão mescladas e arquivos com o mesmo nome poderão ser substituídos. Continuar?": "An item named “{0}” already exists {1}.\nFolders will be merged and files with the same name may be replaced. Continue?",
+ "no servidor": "on the server",
+ "no computador": "on this computer",
+ "Enviando para": "Uploading to",
+ "Baixando de": "Downloading from",
+ "Erro": "Error",
+ "Falha na transferência": "Transfer failed",
+ "já existe no destino": "already exists at the destination",
+ "Alguns itens não foram movidos": "Some items were not moved",
+ "{0} item(ns) movido(s) para {1}": "{0} item(s) moved to {1}",
+ "Falha ao copiar": "Copy failed",
+ "Sobre o {0}": "About {0}",
+ "Versão {0}": "Version {0}",
+ "Cliente SFTP/SSH nativo para macOS — o “WinSCP do Mac”.": "Native SFTP/SSH client for macOS — the “WinSCP for Mac”.",
+ "Arrastar e soltar • várias conexões em abas<br>favoritos com Touch ID • editor de texto<br>permissões (chmod) • console SSH completo": "Drag and drop • multiple connections in tabs<br>favorites with Touch ID • text editor<br>permissions (chmod) • full SSH console",
+ "© {0} {1}. Feito no Brasil 🇧🇷": "© {0} {1}. Made in Brazil 🇧🇷",
+ "Ajuda": "Help",
+ "Página do MacSCP no GitHub": "MacSCP on GitHub",
+ "＋ Nova conexão": "＋ New connection",
+ "Conectar a um servidor (⌘T abre nova aba)": "Connect to a server (⌘T opens a new tab)",
+ "⭐ Favoritos": "⭐ Favorites",
+ "Conectar a um favorito ou gerenciar": "Connect to a favorite or manage them",
+ "Desconectar": "Disconnect",
+ "Nova aba (⌘T)": "New tab (⌘T)",
+ "Cada aba é uma conexão. Arraste entre os painéis ou solte em cima de uma pasta. Botão direito para mais opções.": "Each tab is a connection. Drag between the panels or drop onto a folder. Right-click for more options.",
+ "Informe servidor e usuário.": "Enter the server and user.",
+ "Conexão cancelada (Touch ID não confirmado).": "Connection cancelled (Touch ID not confirmed).",
+ "\n\nEla será salva e, das próximas vezes, liberada pelo Touch ID.": "\n\nIt will be saved and, next time, unlocked with Touch ID.",
+ "Senha — {0}": "Password — {0}",
+ "Senha SSH de {0}@{1}\n(vazio = usar chave SSH){2}": "SSH password for {0}@{1}\n(empty = use SSH key){2}",
+ "Senha não salva: {0}": "Password not saved: {0}",
+ "Adicionar esta conexão aos favoritos…": "Add this connection to favorites…",
+ "Gerenciar favoritos…": "Manage favorites…",
+ "🔒 Bloquear favoritos (pedir Touch ID de novo)": "🔒 Lock favorites (ask for Touch ID again)",
+ "Favoritos bloqueados — o próximo uso de senha salva pede Touch ID.": "Favorites locked — the next use of a saved password asks for Touch ID.",
+ "Adicionar aos favoritos": "Add to favorites",
+ "Nome do favorito:": "Favorite name:",
+ "“{0}” foi salvo. Para guardar a senha, abra “Gerenciar favoritos…”.": "“{0}” was saved. To store the password, open “Manage favorites…”.",
+ "Há {0} transferência(s) em andamento. Cancelar e sair?": "There are {0} transfer(s) in progress. Cancel and quit?",
+ "Salvo às {0}  •  {1}": "Saved at {0}  •  {1}",
+ "Conectado a {0}@{1}:{2}": "Connected to {0}@{1}:{2}",
+ "Favorito salvo": "Favorite saved",
+ "cancelado": "cancelled",
+ "{0} — {1} arquivo(s) • {2}": "{0} — {1} file(s) • {2}",
+ "(nenhum favorito ainda)": "(no favorites yet)",
+ "Sair": "Quit",
+ # menu de idioma
+ "Idioma": "Language",
+ "Reiniciar agora": "Restart now",
+ "Depois": "Later",
+ "Idioma alterado": "Language changed",
+ "O MacSCP precisa reiniciar para mudar o idioma. Reiniciar agora?": "MacSCP needs to restart to change the language. Restart now?",
+}
+
+
+_TR_EXACT = {k: v for k, v in TR_EN.items() if not re.search(r"\{\d+\}", k)}
+_TR_PATTERNS = []
+for _k, _v in TR_EN.items():
+    if re.search(r"\{\d+\}", _k):
+        _parts = re.split(r"\{(\d+)\}", _k)
+        _rx = "".join(re.escape(p) if i % 2 == 0 else f"(?P<g{p}>.*?)" for i, p in enumerate(_parts))
+        _literal = len("".join(_parts[::2]))
+        _TR_PATTERNS.append((_literal, re.compile(_rx + r"\Z", re.DOTALL), _v))
+_TR_PATTERNS = [(rx, v) for _lit, rx, v in sorted(_TR_PATTERNS, key=lambda t: -t[0])]
+
+
+def _(text):
+    """Traduz um texto da interface para o idioma escolhido (o texto-fonte é o português)."""
+    if LANG == "pt" or not isinstance(text, str):
+        return text
+    hit = _TR_EXACT.get(text)
+    if hit is not None:
+        return hit
+    for rx, en in _TR_PATTERNS:
+        m = rx.match(text)
+        if m:
+            vals = {k[1:]: _(val) for k, val in m.groupdict().items()}
+            return re.sub(r"\{(\d+)\}", lambda mm: vals.get(mm.group(1), ""), en)
+    return text
+
+
+def settings_path():
+    return config_dir() / "config.json"
+
+
+def load_language():
+    try:
+        lang = json.loads(settings_path().read_text("utf-8")).get("language")
+        if lang in dict(LANGUAGES): return lang
+    except Exception:
+        pass
+    from PySide6.QtCore import QLocale
+    return "pt" if QLocale.system().name().lower().startswith("pt") else "en"
+
+
+def save_language(lang):
+    try: data = json.loads(settings_path().read_text("utf-8"))
+    except Exception: data = {}
+    data["language"] = lang
+    settings_path().write_text(json.dumps(data, indent=2), "utf-8")
 MIME_PATHS = "application/x-macscp-paths"   # JSON: {"session": id, "side": "local|remote", "paths": [...]}
 PATH_ROLE = Qt.UserRole
 ISDIR_ROLE = Qt.UserRole + 1
@@ -113,7 +419,7 @@ class SecretStore:
 
     @classmethod
     def _key(cls):
-        key_path, _ = cls._paths()
+        key_path, _unused = cls._paths()
         if key_path.exists():
             key = key_path.read_bytes()
             if len(key) == 32: return key
@@ -124,13 +430,13 @@ class SecretStore:
 
     @classmethod
     def _load(cls):
-        _, data_path = cls._paths()
+        _unused, data_path = cls._paths()
         try: return json.loads(data_path.read_text("utf-8")) if data_path.exists() else {}
         except Exception: return {}
 
     @classmethod
     def _save(cls, items):
-        _, data_path = cls._paths(); tmp = data_path.with_suffix(".tmp")
+        _unused, data_path = cls._paths(); tmp = data_path.with_suffix(".tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f: json.dump(items, f)
         tmp.replace(data_path)
@@ -168,16 +474,16 @@ TOUCH_ID_PROBLEM = ""   # motivo, quando o Touch ID não está disponível
 def touch_id(reason):
     """Pede Touch ID. Retorna True (ok), False (cancelado) ou None (Touch ID indisponível neste Mac/build)."""
     global TOUCH_ID_PROBLEM
-    if sys.platform != "darwin": TOUCH_ID_PROBLEM = "só existe no macOS"; return None
+    if sys.platform != "darwin": TOUCH_ID_PROBLEM = _("só existe no macOS"); return None
     try:
         from LocalAuthentication import LAContext
     except Exception as e:
-        TOUCH_ID_PROBLEM = f"módulo LocalAuthentication ausente no app ({e})"; return None
+        TOUCH_ID_PROBLEM = _(f"módulo LocalAuthentication ausente no app ({e})"); return None
     try:
         ctx = LAContext.alloc().init()
         can, err = ctx.canEvaluatePolicy_error_(LA_POLICY_OWNER_AUTH, None)
         if not can:
-            TOUCH_ID_PROBLEM = str(err.localizedDescription()) if err is not None else "não disponível"; return None
+            TOUCH_ID_PROBLEM = str(err.localizedDescription()) if err is not None else _("não disponível"); return None
         done = threading.Event(); result = {}
         def reply(success, error):
             result["ok"] = bool(success); done.set()
@@ -205,16 +511,16 @@ class Unlock:
     @classmethod
     def ensure(cls, what):
         if cls.unlocked: return True
-        r = touch_id(f"usar a senha salva de “{what}”")
+        r = touch_id(_(f"usar a senha salva de “{what}”"))
         if r is False: return False
         if r is None and sys.platform == "darwin":
             # sem Touch ID: pede a senha do Mac (do seu usuário, não a das Chaves)
-            pwd, ok = QInputDialog.getText(None, "Desbloquear favoritos",
-                                           f"Touch ID indisponível ({TOUCH_ID_PROBLEM}).\n"
-                                           "Digite a senha do seu usuário do Mac para usar as senhas salvas:",
+            pwd, ok = QInputDialog.getText(None, _("Desbloquear favoritos"),
+                                           _(f"Touch ID indisponível ({TOUCH_ID_PROBLEM}).\n"
+                                           "Digite a senha do seu usuário do Mac para usar as senhas salvas:"),
                                            QLineEdit.Password)
             if not ok or not check_mac_password(pwd):
-                if ok: QMessageBox.warning(None, "Senha incorreta", "Senha do Mac incorreta.")
+                if ok: QMessageBox.warning(None, _("Senha incorreta"), _("Senha do Mac incorreta."))
                 return False
         cls.unlocked = True
         return True
@@ -228,24 +534,24 @@ class ConnectionDialog(QDialog):
     """Nova conexão (com opção de salvar nos favoritos)."""
 
     def __init__(self, parent=None):
-        super().__init__(parent); self.setWindowTitle("Nova conexão SSH/SFTP"); self.setMinimumWidth(440)
+        super().__init__(parent); self.setWindowTitle(_("Nova conexão SSH/SFTP")); self.setMinimumWidth(440)
         form = QFormLayout(self)
-        self.host = QLineEdit(); self.host.setPlaceholderText("192.168.1.100 ou host.example")
+        self.host = QLineEdit(); self.host.setPlaceholderText(_("192.168.1.100 ou host.example"))
         self.port = QSpinBox(); self.port.setRange(1, 65535); self.port.setValue(22)
         self.user = QLineEdit()
         self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.Password)
-        self.password.setPlaceholderText("vazio = usar chave SSH (~/.ssh)")
-        self.remote_dir = QLineEdit(); self.remote_dir.setPlaceholderText("opcional, ex.: /var/www")
-        form.addRow("Servidor / IP", self.host); form.addRow("Porta", self.port)
-        form.addRow("Usuário", self.user); form.addRow("Senha SSH", self.password)
-        form.addRow("Pasta remota inicial", self.remote_dir)
-        self.save_fav = QCheckBox("Salvar nos favoritos"); form.addRow(self.save_fav)
-        self.fav_name = QLineEdit(); self.fav_name.setPlaceholderText("Nome do favorito (ex.: Raspberry)")
-        self.save_pwd = QCheckBox("Salvar senha (protegida por Touch ID)"); self.save_pwd.setChecked(True)
-        form.addRow("Nome", self.fav_name); form.addRow(self.save_pwd)
+        self.password.setPlaceholderText(_("vazio = usar chave SSH (~/.ssh)"))
+        self.remote_dir = QLineEdit(); self.remote_dir.setPlaceholderText(_("opcional, ex.: /var/www"))
+        form.addRow(_("Servidor / IP"), self.host); form.addRow(_("Porta"), self.port)
+        form.addRow(_("Usuário"), self.user); form.addRow(_("Senha SSH"), self.password)
+        form.addRow(_("Pasta remota inicial"), self.remote_dir)
+        self.save_fav = QCheckBox(_("Salvar nos favoritos")); form.addRow(self.save_fav)
+        self.fav_name = QLineEdit(); self.fav_name.setPlaceholderText(_("Nome do favorito (ex.: Raspberry)"))
+        self.save_pwd = QCheckBox(_("Salvar senha (protegida por Touch ID)")); self.save_pwd.setChecked(True)
+        form.addRow(_("Nome"), self.fav_name); form.addRow(self.save_pwd)
         self.save_fav.toggled.connect(self._toggle); self._toggle(False)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Conectar")
+        buttons.button(QDialogButtonBox.Ok).setText(_("Conectar"))
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); form.addRow(buttons)
 
     def _toggle(self, on):
@@ -261,29 +567,29 @@ class FavoritesDialog(QDialog):
     connect_requested = Signal(dict, object)   # favorito, senha (None = usar a salva)
 
     def __init__(self, favorites, parent=None):
-        super().__init__(parent); self.setWindowTitle("Favoritos"); self.resize(680, 380)
+        super().__init__(parent); self.setWindowTitle(_("Favoritos")); self.resize(680, 380)
         self.favs = favorites; self.current_id = None
         root = QHBoxLayout(self)
         left = QVBoxLayout(); self.list = QListWidget(); left.addWidget(self.list, 1)
-        lb = QHBoxLayout(); nb = QPushButton("＋ Novo"); db = QPushButton("Excluir")
+        lb = QHBoxLayout(); nb = QPushButton(_("＋ Novo")); db = QPushButton(_("Excluir"))
         lb.addWidget(nb); lb.addWidget(db); left.addLayout(lb); root.addLayout(left, 1)
 
         right = QVBoxLayout(); form = QFormLayout()
         self.name = QLineEdit(); self.host = QLineEdit()
         self.port = QSpinBox(); self.port.setRange(1, 65535); self.port.setValue(22)
         self.user = QLineEdit(); self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.Password)
-        self.password.setPlaceholderText("vazio = usar chave SSH")
-        self.remote_dir = QLineEdit(); self.remote_dir.setPlaceholderText("opcional")
-        self.local_dir = QLineEdit(); self.local_dir.setPlaceholderText("opcional")
+        self.password.setPlaceholderText(_("vazio = usar chave SSH"))
+        self.remote_dir = QLineEdit(); self.remote_dir.setPlaceholderText(_("opcional"))
+        self.local_dir = QLineEdit(); self.local_dir.setPlaceholderText(_("opcional"))
         pick = QPushButton("…"); pick.setFixedWidth(32); pick.clicked.connect(self._pick_local)
         ld = QHBoxLayout(); ld.addWidget(self.local_dir, 1); ld.addWidget(pick)
-        self.save_pwd = QCheckBox("Salvar senha (protegida por Touch ID)"); self.save_pwd.setChecked(True)
-        form.addRow("Nome", self.name); form.addRow("Servidor / IP", self.host); form.addRow("Porta", self.port)
-        form.addRow("Usuário", self.user); form.addRow("Senha", self.password)
-        form.addRow("Pasta remota inicial", self.remote_dir); form.addRow("Pasta local inicial", ld)
+        self.save_pwd = QCheckBox(_("Salvar senha (protegida por Touch ID)")); self.save_pwd.setChecked(True)
+        form.addRow(_("Nome"), self.name); form.addRow(_("Servidor / IP"), self.host); form.addRow(_("Porta"), self.port)
+        form.addRow(_("Usuário"), self.user); form.addRow(_("Senha"), self.password)
+        form.addRow(_("Pasta remota inicial"), self.remote_dir); form.addRow(_("Pasta local inicial"), ld)
         form.addRow(self.save_pwd); right.addLayout(form); right.addStretch(1)
-        rb = QHBoxLayout(); sb = QPushButton("Salvar"); cb = QPushButton("Conectar"); cb.setDefault(True)
-        close = QPushButton("Fechar"); rb.addStretch(1); rb.addWidget(close); rb.addWidget(sb); rb.addWidget(cb)
+        rb = QHBoxLayout(); sb = QPushButton(_("Salvar")); cb = QPushButton(_("Conectar")); cb.setDefault(True)
+        close = QPushButton(_("Fechar")); rb.addStretch(1); rb.addWidget(close); rb.addWidget(sb); rb.addWidget(cb)
         right.addLayout(rb); root.addLayout(right, 2)
 
         nb.clicked.connect(self.new); db.clicked.connect(self.delete); sb.clicked.connect(self.save)
@@ -295,7 +601,7 @@ class FavoritesDialog(QDialog):
         else: self.new()
 
     def _pick_local(self):
-        p = QFileDialog.getExistingDirectory(self, "Pasta local inicial", self.local_dir.text() or str(Path.home()))
+        p = QFileDialog.getExistingDirectory(self, _("Pasta local inicial"), self.local_dir.text() or str(Path.home()))
         if p: self.local_dir.setText(p)
 
     def _refresh_list(self, select_id=None):
@@ -316,20 +622,20 @@ class FavoritesDialog(QDialog):
         self.local_dir.setText(f.get("local_dir", ""))
         # não lê as Chaves aqui (evita pedido de senha do macOS só por selecionar um favorito)
         self.password.clear()
-        self.password.setPlaceholderText("🔒 senha salva — deixe vazio para manter" if f.get("save_password")
-                                         else "vazio = perguntar ao conectar / usar chave SSH")
+        self.password.setPlaceholderText(_("🔒 senha salva — deixe vazio para manter") if f.get("save_password")
+                                         else _("vazio = perguntar ao conectar / usar chave SSH"))
         self.save_pwd.setChecked(bool(f.get("save_password", True)))
 
     def new(self):
         self.current_id = None; self.list.clearSelection()
         for w in (self.name, self.host, self.user, self.password, self.remote_dir, self.local_dir): w.clear()
-        self.password.setPlaceholderText("vazio = usar chave SSH")
+        self.password.setPlaceholderText(_("vazio = usar chave SSH"))
         self.port.setValue(22); self.save_pwd.setChecked(True); self.name.setFocus()
 
     def _form_fav(self):
         host = self.host.text().strip(); user = self.user.text().strip()
         if not host or not user:
-            QMessageBox.warning(self, "Dados incompletos", "Informe pelo menos servidor e usuário."); return None
+            QMessageBox.warning(self, _("Dados incompletos"), _("Informe pelo menos servidor e usuário.")); return None
         return dict(id=self.current_id or uuid.uuid4().hex, name=self.name.text().strip() or f"{user}@{host}",
                     host=host, port=self.port.value(), user=user, remote_dir=self.remote_dir.text().strip(),
                     local_dir=self.local_dir.text().strip(), save_password=self.save_pwd.isChecked())
@@ -344,14 +650,14 @@ class FavoritesDialog(QDialog):
             elif not fav["save_password"] and old.get("save_password"):  # desmarcou "salvar senha"
                 Favorites.delete_password(fav["id"])
         except Exception as e:
-            QMessageBox.warning(self, "Senha não salva", f"O favorito foi salvo, mas a senha não:\n{e}")
+            QMessageBox.warning(self, _("Senha não salva"), _(f"O favorito foi salvo, mas a senha não:\n{e}"))
         self.favs.upsert(fav); self.current_id = fav["id"]; self._refresh_list(fav["id"])
         return fav
 
     def delete(self):
         if not self.current_id: return
         f = self.favs.get(self.current_id)
-        if QMessageBox.question(self, "Excluir favorito", f"Excluir “{f.get('name')}” e a senha salva?",
+        if QMessageBox.question(self, _("Excluir favorito"), _(f"Excluir “{f.get('name')}” e a senha salva?"),
                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
         self.favs.remove(self.current_id); self._refresh_list(); self.new()
         if self.list.count(): self.list.setCurrentRow(0)
@@ -442,30 +748,30 @@ def check_tcp(host, port, timeout=8):
     try:
         socket.getaddrinfo(host, port)
     except socket.gaierror:
-        raise RuntimeError(f"Não encontrei o servidor “{host}”. Confira o nome/IP.")
+        raise RuntimeError(_(f"Não encontrei o servidor “{host}”. Confira o nome/IP."))
     try:
         socket.create_connection((host, port), timeout=timeout).close()
     except socket.timeout:
-        raise RuntimeError(f"Tempo esgotado ao conectar em {host}:{port}.\n\n"
+        raise RuntimeError(_(f"Tempo esgotado ao conectar em {host}:{port}.\n\n"
                            "O servidor não respondeu: pode estar desligado, fora da VPN (ZeroTier/Tailscale) "
-                           "ou com firewall bloqueando a porta.")
+                           "ou com firewall bloqueando a porta."))
     except OSError as e:
         code = e.errno
         if code == errno.ECONNREFUSED:
-            raise RuntimeError(f"{host} recusou a conexão na porta {port}.\n\n"
-                               "O servidor está acessível, mas o SSH não está rodando nessa porta (confira a porta e o serviço ssh).")
+            raise RuntimeError(_(f"{host} recusou a conexão na porta {port}.\n\n"
+                               "O servidor está acessível, mas o SSH não está rodando nessa porta (confira a porta e o serviço ssh)."))
         if code in (errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EPERM, errno.EACCES) and sys.platform == "darwin" and is_private(host):
             raise RuntimeError(
-                f"O macOS bloqueou o acesso a {host} (rede local/VPN).\n\n"
+                _(f"O macOS bloqueou o acesso a {host} (rede local/VPN).\n\n"
                 "Provável causa: o MacSCP não tem permissão de Rede Local.\n"
                 "Abra Ajustes do Sistema → Privacidade e Segurança → Rede Local e ative o MacSCP.\n"
                 "Se ele não aparecer na lista, gere o app de novo com o build_macos.command atualizado.\n\n"
                 f"Se continuar, teste no Terminal:  nc -vz {host} {port}\n"
-                f"(erro do sistema: {e.strerror or code})")
+                f"(erro do sistema: {e.strerror or code})"))
         if code in (errno.EHOSTUNREACH, errno.ENETUNREACH):
-            raise RuntimeError(f"Sem rota até {host}. Confira se a VPN (ZeroTier/Tailscale) está conectada "
-                               f"e se este Mac está autorizado na rede.\n\n(erro do sistema: {e.strerror or code})")
-        raise RuntimeError(f"Não foi possível abrir conexão com {host}:{port}: {e.strerror or e}")
+            raise RuntimeError(_(f"Sem rota até {host}. Confira se a VPN (ZeroTier/Tailscale) está conectada "
+                               f"e se este Mac está autorizado na rede.\n\n(erro do sistema: {e.strerror or code})"))
+        raise RuntimeError(_(f"Não foi possível abrir conexão com {host}:{port}: {e.strerror or e}"))
 
 
 def key_fingerprint(key):
@@ -556,33 +862,33 @@ def open_ssh(parent, host, port, user, password):
             client.close()
             if attempt: raise
             new, old = exc.key, exc.expected_key
-            box = QMessageBox(QMessageBox.Warning, "A chave do servidor mudou",
-                              f"A chave SSH de {host}:{port} é diferente da que estava gravada neste Mac.",
+            box = QMessageBox(QMessageBox.Warning, _("A chave do servidor mudou"),
+                              _(f"A chave SSH de {host}:{port} é diferente da que estava gravada neste Mac."),
                               QMessageBox.Yes | QMessageBox.No, parent)
             box.setInformativeText(
-                "Isso é normal se o servidor foi reinstalado/formatado, se esse IP agora é de outra máquina "
+                _("Isso é normal se o servidor foi reinstalado/formatado, se esse IP agora é de outra máquina "
                 "ou se a chave foi trocada. Se nada disso aconteceu, pode ser alguém interceptando a conexão.\n\n"
                 f"Chave gravada:  {old.get_name()}  {key_fingerprint(old)}\n"
                 f"Chave nova:     {new.get_name()}  {key_fingerprint(new)}\n\n"
-                "Atualizar o known_hosts com a chave nova e conectar?")
-            box.button(QMessageBox.Yes).setText("Atualizar e conectar"); box.button(QMessageBox.No).setText("Cancelar")
+                "Atualizar o known_hosts com a chave nova e conectar?"))
+            box.button(QMessageBox.Yes).setText(_("Atualizar e conectar")); box.button(QMessageBox.No).setText(_("Cancelar"))
             box.setDefaultButton(QMessageBox.No)
-            if box.exec() != QMessageBox.Yes: raise RuntimeError("Chave SSH alterada não foi aceita.")
+            if box.exec() != QMessageBox.Yes: raise RuntimeError(_("Chave SSH alterada não foi aceita."))
             known_hosts_set(known, host, port, new)
         except paramiko.SSHException as exc:
             client.close()
             if attempt or 'not found in known_hosts' not in str(exc).lower(): raise
             key = fetch_server_key(host, port)
             answer = QMessageBox.question(
-                parent, "Confirmar chave SSH",
-                f"Servidor: {host}:{port}\nTipo: {key.get_name()}\nImpressão digital: {key_fingerprint(key)}\n\n"
-                "Confirme com o administrador do servidor por um canal confiável. Deseja confiar nesta chave?",
+                parent, _("Confirmar chave SSH"),
+                _(f"Servidor: {host}:{port}\nTipo: {key.get_name()}\nImpressão digital: {key_fingerprint(key)}\n\n"
+                "Confirme com o administrador do servidor por um canal confiável. Deseja confiar nesta chave?"),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if answer != QMessageBox.Yes: raise RuntimeError("Chave SSH não confirmada.")
+            if answer != QMessageBox.Yes: raise RuntimeError(_("Chave SSH não confirmada."))
             known_hosts_set(known, host, port, key)
         except Exception:
             client.close(); raise
-    raise RuntimeError("Não foi possível validar a chave do servidor.")
+    raise RuntimeError(_("Não foi possível validar a chave do servidor."))
 
 
 class TerminalReader(QThread):
@@ -728,7 +1034,7 @@ class TerminalWidget(QWidget):
 
     def session_ended(self):
         self.ended = True
-        self.feed("\r\n\x1b[90m[Sessão encerrada — pode fechar a janela]\x1b[0m\r\n".encode())
+        self.feed(_("\r\n\x1b[90m[Sessão encerrada — pode fechar a janela]\x1b[0m\r\n").encode())
 
     # --- linhas visíveis (histórico + tela)
     def _line(self, absolute):
@@ -937,10 +1243,10 @@ class TerminalWidget(QWidget):
 
     def _menu(self, pos):
         m = QMenu(self)
-        a = m.addAction("Copiar", self.copy); a.setEnabled(bool(self._sel_range()))
-        m.addAction("Colar", self.paste); m.addSeparator()
-        m.addAction("Selecionar tudo", self.select_all); m.addAction("Limpar", self.clear)
-        m.addSeparator(); m.addAction("Aumentar fonte", lambda: self.zoom(1)); m.addAction("Diminuir fonte", lambda: self.zoom(-1))
+        a = m.addAction(_("Copiar"), self.copy); a.setEnabled(bool(self._sel_range()))
+        m.addAction(_("Colar"), self.paste); m.addSeparator()
+        m.addAction(_("Selecionar tudo"), self.select_all); m.addAction(_("Limpar"), self.clear)
+        m.addSeparator(); m.addAction(_("Aumentar fonte"), lambda: self.zoom(1)); m.addAction(_("Diminuir fonte"), lambda: self.zoom(-1))
         m.exec(self.mapToGlobal(pos))
 
     def focusInEvent(self, e): self.update(); super().focusInEvent(e)
@@ -949,7 +1255,7 @@ class TerminalWidget(QWidget):
 
 class TerminalDialog(QDialog):
     def __init__(self, ssh, title, parent=None):
-        super().__init__(parent); self.setWindowTitle(f"Console SSH — {title}")
+        super().__init__(parent); self.setWindowTitle(_(f"Console SSH — {title}"))
         self.setAttribute(Qt.WA_DeleteOnClose); self.channel = None; self.reader = None
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
@@ -966,7 +1272,7 @@ class TerminalDialog(QDialog):
             self.reader.output.connect(self.term.feed); self.reader.closed.connect(self.close)   # exit → fecha a janela
             self.reader.start()
         except Exception as e:
-            self.term.feed(f"Não foi possível abrir o console: {e}\r\n".encode())
+            self.term.feed(_(f"Não foi possível abrir o console: {e}\r\n").encode())
         QTimer.singleShot(0, self.term.setFocus)
 
     def showEvent(self, e):
@@ -1035,7 +1341,7 @@ class TransferWorker(QThread):
         sftp = None; partial = None
         try:
             sftp = self.ssh.open_sftp()
-            self.progress.emit(0, 0, "Analisando arquivos…")
+            self.progress.emit(0, 0, _("Analisando arquivos…"))
             plan = []
             for direction, src, dst in self.jobs:
                 if direction == 'up': self._plan_up(src, dst, plan)
@@ -1048,7 +1354,7 @@ class TransferWorker(QThread):
                     try: sftp.mkdir(dst)
                     except IOError:
                         if not stat.S_ISDIR(sftp.stat(dst).st_mode):
-                            raise RuntimeError(f"O destino já existe e não é pasta: {dst}")
+                            raise RuntimeError(_(f"O destino já existe e não é pasta: {dst}"))
                 elif kind == 'lmkdir':
                     os.makedirs(dst, exist_ok=True)
                 else:
@@ -1063,13 +1369,13 @@ class TransferWorker(QThread):
                         os.makedirs(os.path.dirname(dst) or '.', exist_ok=True); sftp.get(src, dst, callback=cb)
                     partial = None
                     self.done_bytes = base + size; self.files_done += 1; self._emit(name, force=True)
-            self.finished_ok.emit(True, "Transferência concluída", self.files_done)
+            self.finished_ok.emit(True, _("Transferência concluída"), self.files_done)
         except Cancelled:
             self._remove_partial(sftp, partial)
-            self.finished_ok.emit(False, "Transferência cancelada", self.files_done)
+            self.finished_ok.emit(False, _("Transferência cancelada"), self.files_done)
         except Exception as e:
             self._remove_partial(sftp, partial)
-            self.finished_ok.emit(False, f"Erro: {e}", self.files_done)
+            self.finished_ok.emit(False, _(f"Erro: {e}"), self.files_done)
         finally:
             try:
                 if sftp: sftp.close()
@@ -1094,10 +1400,10 @@ class TransferDialog(QDialog):
         self.setAttribute(Qt.WA_DeleteOnClose); self.worker = worker; self.on_finish = on_finish
         self.started = time.monotonic(); self.finished = False
         lay = QVBoxLayout(self)
-        self.file_label = QLabel("Preparando…"); self.file_label.setWordWrap(True)
+        self.file_label = QLabel(_("Preparando…")); self.file_label.setWordWrap(True)
         self.bar = QProgressBar(); self.bar.setRange(0, 0)
         self.info = QLabel("")
-        self.cancel_btn = QPushButton("Cancelar"); self.cancel_btn.clicked.connect(self.cancel)
+        self.cancel_btn = QPushButton(_("Cancelar")); self.cancel_btn.clicked.connect(self.cancel)
         bl = QHBoxLayout(); bl.addStretch(1); bl.addWidget(self.cancel_btn)
         lay.addWidget(self.file_label); lay.addWidget(self.bar); lay.addWidget(self.info); lay.addLayout(bl)
         worker.progress.connect(self._progress); worker.finished_ok.connect(self._done)
@@ -1108,12 +1414,12 @@ class TransferDialog(QDialog):
             self.bar.setRange(0, 1000); self.bar.setValue(int(done * 1000 / total))
             el = max(time.monotonic() - self.started, 0.001); speed = done / el
             eta = (total - done) / speed if speed > 0 else 0
-            self.info.setText(f"{human_size(done)} de {human_size(total)}  •  {human_size(speed)}/s  •  "
-                              f"faltam ~{int(eta // 60)}min {int(eta % 60)}s")
+            self.info.setText(_(f"{human_size(done)} de {human_size(total)}  •  {human_size(speed)}/s  •  "
+                              f"faltam ~{int(eta // 60)}min {int(eta % 60)}s"))
 
     def cancel(self):
         if self.finished: self.close(); return
-        self.cancel_btn.setEnabled(False); self.cancel_btn.setText("Cancelando…"); self.worker.cancel()
+        self.cancel_btn.setEnabled(False); self.cancel_btn.setText(_("Cancelando…")); self.worker.cancel()
 
     def _done(self, ok, msg, count):
         self.finished = True
@@ -1122,7 +1428,7 @@ class TransferDialog(QDialog):
 
     def closeEvent(self, e):
         if not self.finished:
-            self.worker.cancel(); self.cancel_btn.setText("Cancelando…"); e.ignore(); return
+            self.worker.cancel(); self.cancel_btn.setText(_("Cancelando…")); e.ignore(); return
         e.accept()
 
 
@@ -1167,7 +1473,7 @@ class CodeEdit(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.setTabStopDistance(self.fontMetrics().horizontalAdvance(" ") * 4)
         self.numbers = LineNumberArea(self)
-        self.blockCountChanged.connect(lambda _: self.setViewportMargins(self.number_width(), 0, 0, 0))
+        self.blockCountChanged.connect(lambda _arg: self.setViewportMargins(self.number_width(), 0, 0, 0))
         self.updateRequest.connect(self._update_numbers)
         self.setViewportMargins(self.number_width(), 0, 0, 0)
 
@@ -1215,17 +1521,17 @@ class EditorWindow(QMainWindow):
 
         # barra de busca (⌘F)
         self.find_bar = QWidget(); fl = QHBoxLayout(self.find_bar); fl.setContentsMargins(8, 4, 8, 4)
-        self.find_input = QLineEdit(); self.find_input.setPlaceholderText("Buscar…  (Enter = próximo, ⇧Enter = anterior)")
-        self.find_case = QCheckBox("Aa"); self.find_case.setToolTip("Diferenciar maiúsculas/minúsculas")
-        fl.addWidget(QLabel("Buscar:")); fl.addWidget(self.find_input, 1); fl.addWidget(self.find_case)
+        self.find_input = QLineEdit(); self.find_input.setPlaceholderText(_("Buscar…  (Enter = próximo, ⇧Enter = anterior)"))
+        self.find_case = QCheckBox("Aa"); self.find_case.setToolTip(_("Diferenciar maiúsculas/minúsculas"))
+        fl.addWidget(QLabel(_("Buscar:"))); fl.addWidget(self.find_input, 1); fl.addWidget(self.find_case)
         for text, back in (("◀", True), ("▶", False)):
-            b = QPushButton(text); b.setFixedWidth(36); b.clicked.connect(lambda _=False, back=back: self.find(back)); fl.addWidget(b)
+            b = QPushButton(text); b.setFixedWidth(36); b.clicked.connect(lambda _chk=False, back=back: self.find(back)); fl.addWidget(b)
         close = QPushButton("✕"); close.setFixedWidth(30); close.clicked.connect(self.find_bar.hide); fl.addWidget(close)
         self.find_input.returnPressed.connect(lambda: self.find(bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)))
         self.find_bar.hide(); lay.addWidget(self.find_bar)
         self.setCentralWidget(central)
 
-        where = session.title if side == "remote" else "Computador local"
+        where = session.title if side == "remote" else _("Computador local")
         self.pos_label = QLabel(); self.statusBar().addPermanentWidget(self.pos_label)
         eol_name = {"\n": "LF (Unix)", "\r\n": "CRLF (Windows)", "\r": "CR"}[self.eol]
         self.statusBar().showMessage(f"{where}  •  {self.enc}{' com BOM' if self.bom else ''}  •  {eol_name}")
@@ -1246,7 +1552,7 @@ class EditorWindow(QMainWindow):
 
     def _update_pos(self):
         c = self.edit.textCursor()
-        self.pos_label.setText(f"Linha {c.blockNumber() + 1}, Coluna {c.positionInBlock() + 1}  ")
+        self.pos_label.setText(_(f"Linha {c.blockNumber() + 1}, Coluna {c.positionInBlock() + 1}  "))
 
     def show_find(self):
         self.find_bar.show()
@@ -1264,7 +1570,7 @@ class EditorWindow(QMainWindow):
             c = self.edit.textCursor(); c.movePosition(QTextCursor.End if backward else QTextCursor.Start)
             self.edit.setTextCursor(c)
             if not self.edit.find(text, flags):
-                self.statusBar().showMessage(f"“{text}” não encontrado", 3000)
+                self.statusBar().showMessage(_(f"“{text}” não encontrado"), 3000)
 
     # --- salvar
     def save(self):
@@ -1277,7 +1583,7 @@ class EditorWindow(QMainWindow):
                 self.mtime = os.stat(self.path).st_mtime
             else:
                 sftp = self.session.sftp
-                if sftp is None: raise RuntimeError("A conexão com o servidor foi encerrada. Reconecte para salvar.")
+                if sftp is None: raise RuntimeError(_("A conexão com o servidor foi encerrada. Reconecte para salvar."))
                 try: cur = sftp.stat(self.path).st_mtime
                 except IOError: cur = None
                 if not self._confirm_conflict(cur): return False
@@ -1300,16 +1606,16 @@ class EditorWindow(QMainWindow):
                 finally:
                     QApplication.restoreOverrideCursor()
         except PermissionError:
-            QMessageBox.critical(self, "Sem permissão", f"Seu usuário não tem permissão para gravar em:\n{self.path}")
+            QMessageBox.critical(self, _("Sem permissão"), _(f"Seu usuário não tem permissão para gravar em:\n{self.path}"))
             return False
         except Exception as e:
             msg = str(e)
             if "permission" in msg.lower() or getattr(e, "errno", None) == errno.EACCES:
-                msg = f"Seu usuário não tem permissão para gravar em:\n{self.path}"
-            QMessageBox.critical(self, "Não foi possível salvar", msg)
+                msg = _(f"Seu usuário não tem permissão para gravar em:\n{self.path}")
+            QMessageBox.critical(self, _("Não foi possível salvar"), msg)
             return False
         self.edit.document().setModified(False)
-        self.statusBar().showMessage(f"Salvo às {time.strftime('%H:%M:%S')}  •  {human_size(len(data))}", 5000)
+        self.statusBar().showMessage(_(f"Salvo às {time.strftime('%H:%M:%S')}  •  {human_size(len(data))}"), 5000)
         if self.side == "remote": self.session.load_remote(select=posixpath.basename(self.path))
         else: self.session.load_local(select=os.path.basename(self.path))
         return True
@@ -1317,15 +1623,15 @@ class EditorWindow(QMainWindow):
     def _confirm_conflict(self, current_mtime):
         if current_mtime is None or self.mtime is None or int(current_mtime) == int(self.mtime): return True
         return QMessageBox.warning(
-            self, "Arquivo alterado por fora",
-            "Este arquivo foi modificado depois que você o abriu (por outra pessoa ou programa).\n\n"
-            "Salvar mesmo assim e sobrescrever essas alterações?",
+            self, _("Arquivo alterado por fora"),
+            _("Este arquivo foi modificado depois que você o abriu (por outra pessoa ou programa).\n\n"
+            "Salvar mesmo assim e sobrescrever essas alterações?"),
             QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel) == QMessageBox.Yes
 
     def closeEvent(self, e):
         if self.edit.document().isModified():
-            r = QMessageBox.question(self, "Alterações não salvas",
-                                     f"Salvar as alterações em “{posixpath.basename(self.path)}”?",
+            r = QMessageBox.question(self, _("Alterações não salvas"),
+                                     _(f"Salvar as alterações em “{posixpath.basename(self.path)}”?"),
                                      QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Save)
             if r == QMessageBox.Cancel or (r == QMessageBox.Save and not self.save()):
                 e.ignore(); return
@@ -1342,7 +1648,7 @@ class PermissionsDialog(QDialog):
             [stat.S_IROTH, stat.S_IWOTH, stat.S_IXOTH]]
 
     def __init__(self, names, mode, owner_info="", parent=None):
-        super().__init__(parent); self.setWindowTitle("Permissões"); self.setMinimumWidth(380)
+        super().__init__(parent); self.setWindowTitle(_("Permissões")); self.setMinimumWidth(380)
         self.special = mode & 0o7000          # setuid/setgid/sticky: preservados
         lay = QVBoxLayout(self)
         title = names[0] if len(names) == 1 else f"{len(names)} arquivos"
@@ -1350,9 +1656,9 @@ class PermissionsDialog(QDialog):
         head.setTextFormat(Qt.RichText); lay.addWidget(head)
 
         grid = QGridLayout(); grid.setHorizontalSpacing(18)
-        for c, t in enumerate(("Ler", "Gravar", "Executar")): grid.addWidget(QLabel(f"<b>{t}</b>"), 0, c + 1, Qt.AlignCenter)
+        for c, t in enumerate((_("Ler"), _("Gravar"), _("Executar"))): grid.addWidget(QLabel(f"<b>{t}</b>"), 0, c + 1, Qt.AlignCenter)
         self.boxes = []
-        for r, who in enumerate(("Dono", "Grupo", "Outros")):
+        for r, who in enumerate((_("Dono"), _("Grupo"), _("Outros"))):
             grid.addWidget(QLabel(who), r + 1, 0)
             row = []
             for c in range(3):
@@ -1361,20 +1667,20 @@ class PermissionsDialog(QDialog):
             self.boxes.append(row)
         lay.addLayout(grid)
 
-        ol = QHBoxLayout(); ol.addWidget(QLabel("Octal:"))
+        ol = QHBoxLayout(); ol.addWidget(QLabel(_("Octal:")))
         self.octal = QLineEdit(); self.octal.setMaxLength(4); self.octal.setFixedWidth(70)
         self.octal.setValidator(QRegularExpressionValidator(QRegularExpression("[0-7]{3,4}")))
         self.octal.textEdited.connect(self._octal_changed); ol.addWidget(self.octal)
         self.preview = QLabel(); self.preview.setStyleSheet("font-family: Menlo, monospace; color: gray")
         ol.addWidget(self.preview); ol.addStretch(1); lay.addLayout(ol)
 
-        quick = QHBoxLayout(); quick.addWidget(QLabel("Rápido:"))
-        for m, tip in ((0o644, "arquivo comum"), (0o755, "script/executável"), (0o600, "privado"), (0o664, "grupo grava")):
-            b = QPushButton(f"{m:o}"); b.setToolTip(tip); b.clicked.connect(lambda _=False, m=m: self.set_mode(m)); quick.addWidget(b)
+        quick = QHBoxLayout(); quick.addWidget(QLabel(_("Rápido:")))
+        for m, tip in ((0o644, _("arquivo comum")), (0o755, _("script/executável")), (0o600, _("privado")), (0o664, _("grupo grava"))):
+            b = QPushButton(f"{m:o}"); b.setToolTip(tip); b.clicked.connect(lambda _chk=False, m=m: self.set_mode(m)); quick.addWidget(b)
         quick.addStretch(1); lay.addLayout(quick)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Aplicar")
+        buttons.button(QDialogButtonBox.Ok).setText(_("Aplicar"))
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); lay.addWidget(buttons)
         self._sync_text()
 
@@ -1415,7 +1721,7 @@ class FileTree(QTreeWidget):
 
     def __init__(self, side, session):
         super().__init__(); self.side = side; self.session = session; self._hover = None
-        self.setColumnCount(3); self.setHeaderLabels(["Nome", "Tamanho", "Modificado"])
+        self.setColumnCount(3); self.setHeaderLabels([_("Nome"), _("Tamanho"), _("Modificado")])
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setDragEnabled(True); self.setAcceptDrops(True); self.viewport().setAcceptDrops(True)
         self.setDropIndicatorShown(False); self.setDefaultDropAction(Qt.CopyAction)
@@ -1486,7 +1792,7 @@ class FileTree(QTreeWidget):
     def dropEvent(self, e):
         t = self._drop_target(e); self._set_hover(None)
         if t is None: e.ignore(); return
-        src, paths, dest, _ = t
+        src, paths, dest, _unused = t
         e.setDropAction(Qt.CopyAction); e.accept()
         QTimer.singleShot(0, lambda: self.session.handle_drop(src, paths, self.side, dest))
 
@@ -1505,29 +1811,29 @@ class Session(QWidget):
 
     def __init__(self, main):
         super().__init__(); self.main = main
-        self.ssh = None; self.sftp = None; self.title = "Sem conexão"
+        self.ssh = None; self.sftp = None; self.title = _("Sem conexão")
         self.remote_path = '.'; self.local_path = str(Path.home()); self.transfers = []; self.editors = []
         layout = QVBoxLayout(self); layout.setContentsMargins(4, 4, 4, 4)
         split = QSplitter(Qt.Horizontal); layout.addWidget(split, 1)
 
         left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0); lh = QHBoxLayout()
-        lh.addWidget(QLabel("<b>Computador local</b>"), 1)
-        lh.addWidget(self._btn("Escolher pasta", self.choose_local))
-        lh.addWidget(self._btn("＋ Nova pasta", lambda: self.create_folder('local'), "Criar pasta (⇧⌘N)"))
-        lh.addWidget(self._btn("Excluir", lambda: self.delete_selected('local'), "Excluir selecionados (⌫)"))
-        lh.addWidget(self._btn("↑", self.local_up, "Pasta acima"))
+        lh.addWidget(QLabel(_("<b>Computador local</b>")), 1)
+        lh.addWidget(self._btn(_("Escolher pasta"), self.choose_local))
+        lh.addWidget(self._btn(_("＋ Nova pasta"), lambda: self.create_folder('local'), _("Criar pasta (⇧⌘N)")))
+        lh.addWidget(self._btn(_("Excluir"), lambda: self.delete_selected('local'), _("Excluir selecionados (⌫)")))
+        lh.addWidget(self._btn("↑", self.local_up, _("Pasta acima")))
         ll.addLayout(lh)
         self.local_label = QLabel(self.local_path); self.local_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         ll.addWidget(self.local_label)
         self.local_tree = FileTree('local', self); ll.addWidget(self.local_tree, 1); split.addWidget(left)
 
         right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0); rh = QHBoxLayout()
-        self.remote_title = QLabel("<b>Servidor remoto</b>"); rh.addWidget(self.remote_title, 1)
-        rh.addWidget(self._btn("＋ Nova pasta", lambda: self.create_folder('remote'), "Criar pasta no servidor"))
-        rh.addWidget(self._btn("Excluir", lambda: self.delete_selected('remote'), "Excluir selecionados no servidor (⌫)"))
-        rh.addWidget(self._btn("↑", self.remote_up, "Pasta acima"))
+        self.remote_title = QLabel(_("<b>Servidor remoto</b>")); rh.addWidget(self.remote_title, 1)
+        rh.addWidget(self._btn(_("＋ Nova pasta"), lambda: self.create_folder('remote'), _("Criar pasta no servidor")))
+        rh.addWidget(self._btn(_("Excluir"), lambda: self.delete_selected('remote'), _("Excluir selecionados no servidor (⌫)")))
+        rh.addWidget(self._btn("↑", self.remote_up, _("Pasta acima")))
         rl.addLayout(rh)
-        self.remote_label = QLabel("Não conectado — use “Nova conexão” ou “Favoritos”")
+        self.remote_label = QLabel(_("Não conectado — use “Nova conexão” ou “Favoritos”"))
         self.remote_label.setTextInteractionFlags(Qt.TextSelectableByMouse); rl.addWidget(self.remote_label)
         self.remote_tree = FileTree('remote', self); rl.addWidget(self.remote_tree, 1); split.addWidget(right)
         split.setSizes([560, 560])
@@ -1547,7 +1853,7 @@ class Session(QWidget):
 
     def require_remote(self):
         if not self.sftp:
-            QMessageBox.warning(self, "Sem conexão", "Esta aba não está conectada a um servidor."); return False
+            QMessageBox.warning(self, _("Sem conexão"), _("Esta aba não está conectada a um servidor.")); return False
         return True
 
     # ------------------------------------------------------------------ conexão
@@ -1558,8 +1864,8 @@ class Session(QWidget):
             sftp = client.open_sftp()
         except Exception as e:
             QApplication.restoreOverrideCursor()
-            QMessageBox.critical(self, "Falha na conexão",
-                                 f"Não foi possível conectar em {host}.\n\n{e}")
+            QMessageBox.critical(self, _("Falha na conexão"),
+                                 _(f"Não foi possível conectar em {host}.\n\n{e}"))
             return False
         QApplication.restoreOverrideCursor()
         self.ssh = client; self.sftp = sftp
@@ -1568,20 +1874,20 @@ class Session(QWidget):
             try:
                 if stat.S_ISDIR(sftp.stat(remote_dir).st_mode): self.remote_path = sftp.normalize(remote_dir)
             except IOError:
-                self.status(f"Pasta remota inicial não encontrada: {remote_dir}")
+                self.status(_(f"Pasta remota inicial não encontrada: {remote_dir}"))
         if local_dir and os.path.isdir(local_dir): self.local_path = local_dir; self.load_local()
         self.title = title or f"{user}@{host}"
-        self.remote_title.setText(f"<b>Servidor:</b> {user}@{host}:{port}")
+        self.remote_title.setText(_(f"<b>Servidor:</b> {user}@{host}:{port}"))
         self.title_changed.emit(self, self.title); self.load_remote()
-        self.status(f"Conectado a {user}@{host}:{port}")
+        self.status(_(f"Conectado a {user}@{host}:{port}"))
         return True
 
     def disconnect(self, ask=True):
         if not self.close_editors(remote_only=True): return False
         running = [t for t in self.transfers if t.isRunning()]
         if running:
-            if ask and QMessageBox.question(self, "Transferências em andamento",
-                                            f"Há {len(running)} transferência(s) em andamento nesta conexão. Cancelar e desconectar?",
+            if ask and QMessageBox.question(self, _("Transferências em andamento"),
+                                            _(f"Há {len(running)} transferência(s) em andamento nesta conexão. Cancelar e desconectar?"),
                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return False
             for t in running: t.cancel()
@@ -1590,19 +1896,19 @@ class Session(QWidget):
             if self.sftp: self.sftp.close()
             if self.ssh: self.ssh.close()
         except Exception: pass
-        self.sftp = self.ssh = None; self.title = "Sem conexão"
-        self.remote_title.setText("<b>Servidor remoto</b>")
-        self.remote_label.setText("Não conectado"); self.remote_tree.clear()
+        self.sftp = self.ssh = None; self.title = _("Sem conexão")
+        self.remote_title.setText(_("<b>Servidor remoto</b>"))
+        self.remote_label.setText(_("Não conectado")); self.remote_tree.clear()
         self.title_changed.emit(self, self.title)
         return True
 
     def open_console(self):
-        if not self.ssh: QMessageBox.information(self, "Console SSH", "Esta aba não está conectada."); return
+        if not self.ssh: QMessageBox.information(self, _("Console SSH"), _("Esta aba não está conectada.")); return
         TerminalDialog(self.ssh, self.title, self.main).show()
 
     # ------------------------------------------------------------------ listagem / navegação
     def choose_local(self):
-        path = QFileDialog.getExistingDirectory(self, "Escolher pasta local", self.local_path)
+        path = QFileDialog.getExistingDirectory(self, _("Escolher pasta local"), self.local_path)
         if path: self.local_path = path; self.load_local()
 
     def _add_row(self, tree, name, path, isdir, size, extra):
@@ -1610,13 +1916,13 @@ class Session(QWidget):
         icons = Icons.get()
         row.setIcon(0, icons.local(path, isdir) if tree.side == 'local' else icons.remote(name, isdir))
         row.setData(0, PATH_ROLE, path); row.setData(0, ISDIR_ROLE, isdir)
-        if isdir: row.setToolTip(0, "Solte arquivos aqui para colocá-los dentro desta pasta")
+        if isdir: row.setToolTip(0, _("Solte arquivos aqui para colocá-los dentro desta pasta"))
         tree.addTopLevelItem(row); return row
 
     def load_local(self, select=None):
         self.local_label.setText(self.local_path); self.local_tree.clear()
         try: items = sorted(os.scandir(self.local_path), key=lambda x: (not x.is_dir(follow_symlinks=False), x.name.lower()))
-        except Exception as e: self.status(f"Erro ao listar pasta local: {e}"); return
+        except Exception as e: self.status(_(f"Erro ao listar pasta local: {e}")); return
         for ent in items:
             try:
                 isdir = ent.is_dir(follow_symlinks=False); st = ent.stat(follow_symlinks=False)
@@ -1630,7 +1936,7 @@ class Session(QWidget):
         if not self.sftp: return
         self.remote_label.setText(self.remote_path)
         try: attrs = sorted(self.sftp.listdir_attr(self.remote_path), key=lambda a: (not stat.S_ISDIR(a.st_mode or 0), a.filename.lower()))
-        except Exception as e: self.status(f"Erro ao listar servidor: {e}"); return
+        except Exception as e: self.status(_(f"Erro ao listar servidor: {e}")); return
         for a in attrs:
             mode = a.st_mode or 0; isdir = stat.S_ISDIR(mode)
             mt = time.strftime('%d/%m/%Y %H:%M', time.localtime(a.st_mtime)) if a.st_mtime else ''
@@ -1664,40 +1970,40 @@ class Session(QWidget):
         sel = tree.selectedItems(); menu = QMenu(self)
         remote_ok = side == 'local' or self.sftp is not None
         if len(sel) == 1 and sel[0].data(0, ISDIR_ROLE):
-            menu.addAction("Abrir", lambda: self.open_item(side, sel[0]))
-            a = menu.addAction("Nova pasta dentro de “%s”" % posixpath.basename(sel[0].data(0, PATH_ROLE)),
+            menu.addAction(_("Abrir"), lambda: self.open_item(side, sel[0]))
+            a = menu.addAction(_("Nova pasta dentro de “%s”") % posixpath.basename(sel[0].data(0, PATH_ROLE)),
                                lambda: self.create_folder(side, sel[0].data(0, PATH_ROLE)))
             a.setEnabled(remote_ok)
-            a = menu.addAction("Novo arquivo dentro de “%s”" % posixpath.basename(sel[0].data(0, PATH_ROLE)),
+            a = menu.addAction(_("Novo arquivo dentro de “%s”") % posixpath.basename(sel[0].data(0, PATH_ROLE)),
                                lambda: self.create_file(side, sel[0].data(0, PATH_ROLE)))
             a.setEnabled(remote_ok)
-        a = menu.addAction("Nova pasta aqui…", lambda: self.create_folder(side)); a.setEnabled(remote_ok)
-        a = menu.addAction("Novo arquivo de texto aqui…", lambda: self.create_file(side)); a.setEnabled(remote_ok)
+        a = menu.addAction(_("Nova pasta aqui…"), lambda: self.create_folder(side)); a.setEnabled(remote_ok)
+        a = menu.addAction(_("Novo arquivo de texto aqui…"), lambda: self.create_file(side)); a.setEnabled(remote_ok)
         if sel:
             paths = [i.data(0, PATH_ROLE) for i in sel]
             menu.addSeparator()
             if side == 'local':
-                a = menu.addAction("Enviar para o servidor  →", lambda: self.handle_drop('local', paths, 'remote', self.remote_path))
+                a = menu.addAction(_("Enviar para o servidor  →"), lambda: self.handle_drop('local', paths, 'remote', self.remote_path))
                 a.setEnabled(self.sftp is not None)
             else:
-                menu.addAction("←  Baixar para o computador", lambda: self.handle_drop('remote', paths, 'local', self.local_path))
+                menu.addAction(_("←  Baixar para o computador"), lambda: self.handle_drop('remote', paths, 'local', self.local_path))
             if len(sel) == 1 and not sel[0].data(0, ISDIR_ROLE):
-                menu.addAction("✏️  Editar", lambda: self.edit_file(side, paths[0]))
-                if side == 'local': menu.addAction("Abrir com o app padrão", lambda: self.open_default(paths[0]))
+                menu.addAction(_("✏️  Editar"), lambda: self.edit_file(side, paths[0]))
+                if side == 'local': menu.addAction(_("Abrir com o app padrão"), lambda: self.open_default(paths[0]))
             files = [i.data(0, PATH_ROLE) for i in sel if not i.data(0, ISDIR_ROLE)]
-            if files: menu.addAction("🔐  Permissões…", lambda: self.change_permissions(side, files))
-            if len(sel) == 1: menu.addAction("Renomear…", lambda: self.rename_item(side, sel[0]))
-            if side == 'local': menu.addAction("Mostrar no Finder", lambda: self.reveal_in_finder(paths[0]))
+            if files: menu.addAction(_("🔐  Permissões…"), lambda: self.change_permissions(side, files))
+            if len(sel) == 1: menu.addAction(_("Renomear…"), lambda: self.rename_item(side, sel[0]))
+            if side == 'local': menu.addAction(_("Mostrar no Finder"), lambda: self.reveal_in_finder(paths[0]))
             menu.addSeparator()
-            label = "Excluir “%s”" % posixpath.basename(paths[0]) if len(sel) == 1 else f"Excluir {len(sel)} itens"
+            label = _("Excluir “%s”") % posixpath.basename(paths[0]) if len(sel) == 1 else _(f"Excluir {len(sel)} itens")
             menu.addAction(label, lambda: self.delete_selected(side))
         menu.addSeparator()
-        menu.addAction("Atualizar", self.load_local if side == 'local' else self.load_remote)
+        menu.addAction(_("Atualizar"), self.load_local if side == 'local' else self.load_remote)
         menu.exec(tree.viewport().mapToGlobal(pos))
 
     def open_default(self, path):
         try: subprocess.Popen(['open', path])
-        except Exception as e: self.status(f"Não foi possível abrir: {e}")
+        except Exception as e: self.status(_(f"Não foi possível abrir: {e}"))
 
     def edit_file(self, side, path):
         """Abre um arquivo de texto no editor (local ou no servidor)."""
@@ -1710,10 +2016,10 @@ class Session(QWidget):
                 st = os.stat(path)
             else:
                 st = self.sftp.stat(path)
-                if not stat.S_ISREG(st.st_mode or 0): raise RuntimeError("Não é um arquivo comum.")
+                if not stat.S_ISREG(st.st_mode or 0): raise RuntimeError(_("Não é um arquivo comum."))
             size = st.st_size or 0
             if size > EDIT_MAX_BYTES and QMessageBox.question(
-                    self, "Arquivo grande", f"“{name}” tem {human_size(size)}. Abrir no editor mesmo assim?",
+                    self, _("Arquivo grande"), _(f"“{name}” tem {human_size(size)}. Abrir no editor mesmo assim?"),
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
             QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -1726,12 +2032,12 @@ class Session(QWidget):
             finally:
                 QApplication.restoreOverrideCursor()
         except Exception as e:
-            QMessageBox.critical(self, "Não foi possível abrir", f"{name}\n\n{e}"); return
+            QMessageBox.critical(self, _("Não foi possível abrir"), f"{name}\n\n{e}"); return
         if decode_text(data) is None:
             if side == 'local': self.open_default(path)      # imagem, PDF etc. → app padrão do Mac
-            else: QMessageBox.information(self, "Arquivo binário",
-                                          f"“{name}” não é um arquivo de texto, então não dá para editar aqui.\n"
-                                          "Baixe para o computador para abrir com outro app.")
+            else: QMessageBox.information(self, _("Arquivo binário"),
+                                          _(f"“{name}” não é um arquivo de texto, então não dá para editar aqui.\n"
+                                          "Baixe para o computador para abrir com outro app."))
             return
         ed = EditorWindow(self, side, path, data, st.st_mtime); self.editors.append(ed); ed.show()
 
@@ -1744,29 +2050,29 @@ class Session(QWidget):
 
     def reveal_in_finder(self, path):
         try: subprocess.Popen(['open', '-R', path])
-        except Exception as e: self.status(f"Não foi possível abrir o Finder: {e}")
+        except Exception as e: self.status(_(f"Não foi possível abrir o Finder: {e}"))
 
     # ------------------------------------------------------------------ criar / renomear / excluir
     def create_folder(self, side, parent_dir=None):
         if side == 'remote' and not self.require_remote(): return
         parent_dir = parent_dir or self.current_dir(side)
-        name, ok = QInputDialog.getText(self, "Nova pasta", f"Nome da nova pasta em:\n{parent_dir}", text="Nova pasta")
+        name, ok = QInputDialog.getText(self, _("Nova pasta"), _(f"Nome da nova pasta em:\n{parent_dir}"), text=_("Nova pasta"))
         if not ok: return
         name = name.strip()
         if not valid_name(name):
-            QMessageBox.warning(self, "Nome inválido", "Use um nome sem “/” e diferente de “.” ou “..”."); return
+            QMessageBox.warning(self, _("Nome inválido"), _("Use um nome sem “/” e diferente de “.” ou “..”.")); return
         try:
             if side == 'local':
                 target = os.path.join(parent_dir, name)
-                if os.path.lexists(target): raise FileExistsError(f"Já existe um item chamado “{name}”.")
+                if os.path.lexists(target): raise FileExistsError(_(f"Já existe um item chamado “{name}”."))
                 os.mkdir(target)
             else:
                 target = posixpath.join(parent_dir, name)
-                if self.remote_exists(target): raise FileExistsError(f"Já existe um item chamado “{name}” no servidor.")
+                if self.remote_exists(target): raise FileExistsError(_(f"Já existe um item chamado “{name}” no servidor."))
                 self.sftp.mkdir(target)
         except Exception as e:
-            QMessageBox.critical(self, "Não foi possível criar a pasta", str(e)); return
-        self.status(f"Pasta criada: {target}")
+            QMessageBox.critical(self, _("Não foi possível criar a pasta"), str(e)); return
+        self.status(_(f"Pasta criada: {target}"))
         same = parent_dir == self.current_dir(side)
         (self.load_local if side == 'local' else self.load_remote)(select=name if same else None)
 
@@ -1774,23 +2080,23 @@ class Session(QWidget):
         """Cria um arquivo de texto vazio e já abre no editor."""
         if side == 'remote' and not self.require_remote(): return
         parent_dir = parent_dir or self.current_dir(side)
-        name, ok = QInputDialog.getText(self, "Novo arquivo", f"Nome do novo arquivo em:\n{parent_dir}", text="novo.txt")
+        name, ok = QInputDialog.getText(self, _("Novo arquivo"), _(f"Nome do novo arquivo em:\n{parent_dir}"), text=_("novo.txt"))
         if not ok: return
         name = name.strip()
         if not valid_name(name):
-            QMessageBox.warning(self, "Nome inválido", "Use um nome sem “/” e diferente de “.” ou “..”."); return
+            QMessageBox.warning(self, _("Nome inválido"), _("Use um nome sem “/” e diferente de “.” ou “..”.")); return
         try:
             if side == 'local':
                 target = os.path.join(parent_dir, name)
-                if os.path.lexists(target): raise FileExistsError(f"Já existe um item chamado “{name}”.")
+                if os.path.lexists(target): raise FileExistsError(_(f"Já existe um item chamado “{name}”."))
                 with open(target, 'x'): pass
             else:
                 target = posixpath.join(parent_dir, name)
-                if self.remote_exists(target): raise FileExistsError(f"Já existe um item chamado “{name}” no servidor.")
+                if self.remote_exists(target): raise FileExistsError(_(f"Já existe um item chamado “{name}” no servidor."))
                 with self.sftp.open(target, 'w'): pass
         except Exception as e:
-            QMessageBox.critical(self, "Não foi possível criar o arquivo", str(e)); return
-        self.status(f"Arquivo criado: {target}")
+            QMessageBox.critical(self, _("Não foi possível criar o arquivo"), str(e)); return
+        self.status(_(f"Arquivo criado: {target}"))
         same = parent_dir == self.current_dir(side)
         (self.load_local if side == 'local' else self.load_remote)(select=name if same else None)
         self.edit_file(side, target)
@@ -1801,7 +2107,7 @@ class Session(QWidget):
         try:
             st = os.stat(paths[0]) if side == 'local' else self.sftp.stat(paths[0])
         except Exception as e:
-            QMessageBox.critical(self, "Permissões", f"Não foi possível ler as permissões:\n{e}"); return
+            QMessageBox.critical(self, _("Permissões"), _(f"Não foi possível ler as permissões:\n{e}")); return
         mode = stat.S_IMODE(st.st_mode or 0)
         info = ""
         if len(paths) == 1:
@@ -1809,10 +2115,10 @@ class Session(QWidget):
             if side == 'local':
                 try:
                     import pwd, grp
-                    info = f"Dono: {pwd.getpwuid(uid).pw_name}  •  Grupo: {grp.getgrgid(gid).gr_name}"
-                except Exception: info = f"Dono (uid): {uid}  •  Grupo (gid): {gid}"
+                    info = _(f"Dono: {pwd.getpwuid(uid).pw_name}  •  Grupo: {grp.getgrgid(gid).gr_name}")
+                except Exception: info = _(f"Dono (uid): {uid}  •  Grupo (gid): {gid}")
             elif uid is not None:
-                info = f"Dono (uid): {uid}  •  Grupo (gid): {gid}"
+                info = _(f"Dono (uid): {uid}  •  Grupo (gid): {gid}")
         names = [posixpath.basename(p) for p in paths]
         dlg = PermissionsDialog(names, mode, info, self)
         if dlg.exec() != QDialog.Accepted: return
@@ -1822,47 +2128,47 @@ class Session(QWidget):
                 if side == 'local': os.chmod(p, new_mode)
                 else: self.sftp.chmod(p, new_mode)
             except Exception as e:
-                msg = "sem permissão (só o dono do arquivo ou o root pode alterar)" if (
+                msg = _("sem permissão (só o dono do arquivo ou o root pode alterar)") if (
                     isinstance(e, PermissionError) or "permission" in str(e).lower()) else str(e)
                 errors.append(f"{posixpath.basename(p)}: {msg}")
         (self.load_local if side == 'local' else self.load_remote)(select=names[0] if len(names) == 1 else None)
-        if errors: QMessageBox.critical(self, "Permissões não alteradas", "\n".join(errors[:15]))
-        else: self.status(f"Permissões {new_mode:03o} aplicadas em {len(paths)} arquivo(s).")
+        if errors: QMessageBox.critical(self, _("Permissões não alteradas"), "\n".join(errors[:15]))
+        else: self.status(_(f"Permissões {new_mode:03o} aplicadas em {len(paths)} arquivo(s)."))
 
     def rename_item(self, side, item):
         if side == 'remote' and not self.require_remote(): return
         old = item.data(0, PATH_ROLE); j = os.path if side == 'local' else posixpath
         old_name = j.basename(old)
-        name, ok = QInputDialog.getText(self, "Renomear", "Novo nome:", text=old_name)
+        name, ok = QInputDialog.getText(self, _("Renomear"), _("Novo nome:"), text=old_name)
         name = (name or '').strip()
         if not ok or name == old_name: return
         if not valid_name(name):
-            QMessageBox.warning(self, "Nome inválido", "Use um nome sem “/” e diferente de “.” ou “..”."); return
+            QMessageBox.warning(self, _("Nome inválido"), _("Use um nome sem “/” e diferente de “.” ou “..”.")); return
         new = j.join(j.dirname(old), name)
         try:
             if side == 'local':
-                if os.path.lexists(new): raise FileExistsError(f"Já existe um item chamado “{name}”.")
+                if os.path.lexists(new): raise FileExistsError(_(f"Já existe um item chamado “{name}”."))
                 os.rename(old, new); self.load_local(select=name)
             else:
-                if self.remote_exists(new): raise FileExistsError(f"Já existe um item chamado “{name}” no servidor.")
+                if self.remote_exists(new): raise FileExistsError(_(f"Já existe um item chamado “{name}” no servidor."))
                 self.sftp.rename(old, new); self.load_remote(select=name)
         except Exception as e:
-            QMessageBox.critical(self, "Não foi possível renomear", str(e))
+            QMessageBox.critical(self, _("Não foi possível renomear"), str(e))
 
     def delete_selected(self, side):
         if side == 'remote' and not self.require_remote(): return
         tree = self.tree(side); paths = tree.selected_paths()
         if not paths:
-            QMessageBox.information(self, "Excluir", "Selecione um arquivo ou pasta para excluir."); return
+            QMessageBox.information(self, _("Excluir"), _("Selecione um arquivo ou pasta para excluir.")); return
         n_dirs = sum(1 for it in tree.selectedItems() if it.data(0, ISDIR_ROLE))
         names = "\n".join("• " + posixpath.basename(p.rstrip('/')) for p in paths[:10]) + ("\n…" if len(paths) > 10 else "")
         if side == 'local':
-            msg = f"Mover para o Lixo {len(paths)} item(ns)?\n\n{names}"
+            msg = _(f"Mover para o Lixo {len(paths)} item(ns)?\n\n{names}")
         else:
-            msg = (f"Excluir DEFINITIVAMENTE do servidor {len(paths)} item(ns)?\n\n{names}"
-                   + ("\n\nPastas serão apagadas com todo o conteúdo." if n_dirs else "")
-                   + "\n\nEssa ação não pode ser desfeita.")
-        if QMessageBox.warning(self, "Confirmar exclusão", msg, QMessageBox.Yes | QMessageBox.Cancel,
+            msg = (_(f"Excluir DEFINITIVAMENTE do servidor {len(paths)} item(ns)?\n\n{names}")
+                   + (_("\n\nPastas serão apagadas com todo o conteúdo.") if n_dirs else "")
+                   + _("\n\nEssa ação não pode ser desfeita."))
+        if QMessageBox.warning(self, _("Confirmar exclusão"), msg, QMessageBox.Yes | QMessageBox.Cancel,
                                QMessageBox.Cancel) != QMessageBox.Yes:
             return
         errors = []
@@ -1876,17 +2182,17 @@ class Session(QWidget):
         finally:
             QApplication.restoreOverrideCursor()
         (self.load_local if side == 'local' else self.load_remote)()
-        if errors: QMessageBox.critical(self, "Alguns itens não foram excluídos", "\n".join(errors[:15]))
-        else: self.status(f"{len(paths)} item(ns) excluído(s).")
+        if errors: QMessageBox.critical(self, _("Alguns itens não foram excluídos"), "\n".join(errors[:15]))
+        else: self.status(_(f"{len(paths)} item(ns) excluído(s)."))
 
     def local_delete(self, path):
         res = QFile.moveToTrash(path)
         ok = res[0] if isinstance(res, tuple) else bool(res)
         if ok: return
-        if QMessageBox.question(self, "Lixo indisponível",
-                                f"Não foi possível mover para o Lixo:\n{path}\n\nApagar definitivamente?",
+        if QMessageBox.question(self, _("Lixo indisponível"),
+                                _(f"Não foi possível mover para o Lixo:\n{path}\n\nApagar definitivamente?"),
                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
-            raise RuntimeError("cancelado")
+            raise RuntimeError(_("cancelado"))
         if os.path.isdir(path) and not os.path.islink(path): shutil.rmtree(path)
         else: os.remove(path)
 
@@ -1916,9 +2222,9 @@ class Session(QWidget):
 
     def _confirm_overwrite(self, name, where):
         return QMessageBox.question(
-            self, "Destino existente",
-            f"Já existe um item chamado “{name}” {where}.\n"
-            "Pastas serão mescladas e arquivos com o mesmo nome poderão ser substituídos. Continuar?",
+            self, _("Destino existente"),
+            _(f"Já existe um item chamado “{name}” {where}.\n"
+            "Pastas serão mescladas e arquivos com o mesmo nome poderão ser substituídos. Continuar?"),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
     def start_transfer(self, paths, source_side, dest_side, dest_dir):
@@ -1927,23 +2233,23 @@ class Session(QWidget):
         for path in paths:
             if source_side == 'local':
                 name = os.path.basename(path.rstrip(os.sep)); target = posixpath.join(dest_dir, name)
-                if self.remote_exists(target) and not self._confirm_overwrite(name, "no servidor"): continue
+                if self.remote_exists(target) and not self._confirm_overwrite(name, _("no servidor")): continue
                 jobs.append(('up', path, target))
             else:
                 name = posixpath.basename(path.rstrip('/')); target = os.path.join(dest_dir, name)
-                if os.path.lexists(target) and not self._confirm_overwrite(name, "no computador"): continue
+                if os.path.lexists(target) and not self._confirm_overwrite(name, _("no computador")): continue
                 jobs.append(('down', path, target))
         if not jobs: return
         worker = TransferWorker(self.ssh, jobs); self.transfers.append(worker)
-        verb = "Enviando para" if source_side == 'local' else "Baixando de"
+        verb = _("Enviando para") if source_side == 'local' else _("Baixando de")
         title = f"{verb} {self.title}"
 
         def finish(ok, msg, count, worker=worker):
             if worker in self.transfers: self.transfers.remove(worker)
-            self.status(f"{msg} — {count} arquivo(s) • {self.title}")
+            self.status(_(f"{msg} — {count} arquivo(s) • {self.title}"))
             if self.sftp: self.refresh()
             else: self.load_local()
-            if not ok and msg.startswith("Erro"): QMessageBox.critical(self, "Falha na transferência", msg)
+            if not ok and msg.startswith(_("Erro")): QMessageBox.critical(self, _("Falha na transferência"), msg)
 
         dlg = TransferDialog(title, worker, finish, self.main); dlg.show()
         worker.finished.connect(worker.deleteLater)
@@ -1958,16 +2264,16 @@ class Session(QWidget):
             if nd == np_ or nd.startswith(np_ + '/') or j.dirname(np_) == nd: continue
             try:
                 if side == 'local':
-                    if os.path.lexists(target): raise FileExistsError("já existe no destino")
+                    if os.path.lexists(target): raise FileExistsError(_("já existe no destino"))
                     shutil.move(p, target)
                 else:
-                    if self.remote_exists(target): raise FileExistsError("já existe no destino")
+                    if self.remote_exists(target): raise FileExistsError(_("já existe no destino"))
                     self.sftp.rename(p, target)
                 moved += 1
             except Exception as e: errors.append(f"{name}: {e}")
         (self.load_local if side == 'local' else self.load_remote)()
-        if errors: QMessageBox.warning(self, "Alguns itens não foram movidos", "\n".join(errors[:15]))
-        if moved: self.status(f"{moved} item(ns) movido(s) para {dest_dir}")
+        if errors: QMessageBox.warning(self, _("Alguns itens não foram movidos"), "\n".join(errors[:15]))
+        if moved: self.status(_(f"{moved} item(ns) movido(s) para {dest_dir}"))
 
     def copy_local_items(self, paths, dest_dir):
         for p in paths:
@@ -1977,7 +2283,7 @@ class Session(QWidget):
             try:
                 if os.path.isdir(p) and not os.path.islink(p): shutil.copytree(p, target, symlinks=True, dirs_exist_ok=True)
                 else: shutil.copy2(p, target, follow_symlinks=False)
-            except Exception as e: QMessageBox.critical(self, "Falha ao copiar", f"{name}: {e}")
+            except Exception as e: QMessageBox.critical(self, _("Falha ao copiar"), f"{name}: {e}")
         self.load_local()
 
 
@@ -1986,16 +2292,17 @@ class AboutDialog(QDialog):
     """Sobre o MacSCP."""
 
     def __init__(self, parent=None):
-        super().__init__(parent); self.setWindowTitle(f"Sobre o {APP_NAME}"); self.setFixedWidth(420)
+        super().__init__(parent); self.setWindowTitle(_(f"Sobre o {APP_NAME}")); self.setFixedWidth(420)
         lay = QVBoxLayout(self); lay.setSpacing(6); lay.setContentsMargins(28, 24, 28, 18)
-        icon = QLabel(); icon.setPixmap(Icons.get().folder.pixmap(84, 84)); icon.setAlignment(Qt.AlignCenter)
+        ic = app_icon()
+        icon = QLabel(); icon.setPixmap((ic if not ic.isNull() else Icons.get().folder).pixmap(96, 96)); icon.setAlignment(Qt.AlignCenter)
         name = QLabel(f"<span style='font-size:22pt; font-weight:600'>{APP_NAME}</span>"); name.setAlignment(Qt.AlignCenter)
-        ver = QLabel(f"Versão {APP_VERSION}"); ver.setAlignment(Qt.AlignCenter)
+        ver = QLabel(_(f"Versão {APP_VERSION}")); ver.setAlignment(Qt.AlignCenter)
         ver.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        desc = QLabel("Cliente SFTP/SSH nativo para macOS — o “WinSCP do Mac”."); desc.setAlignment(Qt.AlignCenter); desc.setWordWrap(True)
-        feats = QLabel("Arrastar e soltar • várias conexões em abas<br>"
+        desc = QLabel(_("Cliente SFTP/SSH nativo para macOS — o “WinSCP do Mac”.")); desc.setAlignment(Qt.AlignCenter); desc.setWordWrap(True)
+        feats = QLabel(_("Arrastar e soltar • várias conexões em abas<br>"
                        "favoritos com Touch ID • editor de texto<br>"
-                       "permissões (chmod) • console SSH completo")
+                       "permissões (chmod) • console SSH completo"))
         feats.setAlignment(Qt.AlignCenter); feats.setWordWrap(True); feats.setStyleSheet("color: gray")
         link = QLabel(f"<a href='{APP_URL}'>{APP_URL.replace('https://', '')}</a>"); link.setAlignment(Qt.AlignCenter)
         link.setOpenExternalLinks(True)
@@ -2012,7 +2319,7 @@ class AboutDialog(QDialog):
             pyte_v = ""
         tech = QLabel(f"Python {sys.version.split()[0]} • {pyside}<br>paramiko {paramiko.__version__} • pyte {pyte_v}".strip())
         tech.setAlignment(Qt.AlignCenter); tech.setStyleSheet("color: gray; font-size: 11px")
-        copy_ = QLabel(f"© {time.strftime('%Y')} {APP_AUTHOR}. Feito no Brasil 🇧🇷"); copy_.setAlignment(Qt.AlignCenter)
+        copy_ = QLabel(_(f"© {time.strftime('%Y')} {APP_AUTHOR}. Feito no Brasil 🇧🇷")); copy_.setAlignment(Qt.AlignCenter)
         copy_.setStyleSheet("color: gray; font-size: 11px")
         for wdg in (icon, name, ver):
             lay.addWidget(wdg)
@@ -2030,31 +2337,37 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__(); self.setWindowTitle(f"{APP_NAME} {APP_VERSION}"); self.resize(1240, 760)
         # menu: no macOS “Sobre o MacSCP” vai automaticamente para o menu do app (MacSCP ▸ Sobre o MacSCP)
-        help_menu = self.menuBar().addMenu("Ajuda")
-        about = QAction(f"Sobre o {APP_NAME}", self); about.setMenuRole(QAction.AboutRole)
+        help_menu = self.menuBar().addMenu(_("Ajuda"))
+        about = QAction(_(f"Sobre o {APP_NAME}"), self); about.setMenuRole(QAction.AboutRole)
         about.triggered.connect(lambda: AboutDialog(self).exec()); help_menu.addAction(about)
-        gh = QAction("Página do MacSCP no GitHub", self); gh.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(APP_URL)))
+        gh = QAction(_("Página do MacSCP no GitHub"), self); gh.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(APP_URL)))
         help_menu.addAction(gh)
+        lang_menu = self.menuBar().addMenu("Idioma / Language")
+        group = QActionGroup(self); group.setExclusive(True)
+        for code, label in LANGUAGES:
+            act = QAction(label, self, checkable=True); act.setChecked(code == LANG)
+            act.triggered.connect(lambda _c=False, code=code: self.change_language(code))
+            group.addAction(act); lang_menu.addAction(act)
         self.favorites = Favorites()
         root = QWidget(); self.setCentralWidget(root); layout = QVBoxLayout(root)
 
         top = QHBoxLayout()
-        b = QPushButton("＋ Nova conexão"); b.setToolTip("Conectar a um servidor (⌘T abre nova aba)")
+        b = QPushButton(_("＋ Nova conexão")); b.setToolTip(_("Conectar a um servidor (⌘T abre nova aba)"))
         b.clicked.connect(self.new_connection); top.addWidget(b)
         # botão comum (mesmo visual dos outros); o menu abre logo abaixo dele
-        self.fav_btn = QPushButton("⭐ Favoritos"); self.fav_btn.setToolTip("Conectar a um favorito ou gerenciar")
+        self.fav_btn = QPushButton(_("⭐ Favoritos")); self.fav_btn.setToolTip(_("Conectar a um favorito ou gerenciar"))
         self.fav_menu = QMenu(self); self.fav_btn.clicked.connect(self._show_fav_menu)
         top.addWidget(self.fav_btn)
         top.addStretch(1)
-        for text, slot in (("Console SSH", lambda: self.session().open_console()),
-                           ("Atualizar", lambda: self.session().refresh()),
-                           ("Desconectar", lambda: self.session().disconnect())):
+        for text, slot in ((_("Console SSH"), lambda: self.session().open_console()),
+                           (_("Atualizar"), lambda: self.session().refresh()),
+                           (_("Desconectar"), lambda: self.session().disconnect())):
             btn = QPushButton(text); btn.clicked.connect(slot); top.addWidget(btn)
         layout.addLayout(top)
 
         self.tabs = QTabWidget(); self.tabs.setTabsClosable(True); self.tabs.setMovable(True)
         self.tabs.setDocumentMode(True); self.tabs.tabCloseRequested.connect(self.close_tab)
-        plus = QToolButton(); plus.setText("＋"); plus.setToolTip("Nova aba (⌘T)"); plus.clicked.connect(lambda: self.add_session())
+        plus = QToolButton(); plus.setText("＋"); plus.setToolTip(_("Nova aba (⌘T)")); plus.clicked.connect(lambda: self.add_session())
         self.tabs.setCornerWidget(plus, Qt.TopRightCorner)
         layout.addWidget(self.tabs, 1)
         self.add_session()
@@ -2065,8 +2378,8 @@ class MainWindow(QMainWindow):
                            ("Ctrl+N", self.new_connection), ("Ctrl+R", lambda: self.session().refresh())):
             act = QAction(self); act.setShortcut(QKeySequence(keys)); act.triggered.connect(slot); self.addAction(act)
 
-        self.statusBar().showMessage("Cada aba é uma conexão. Arraste entre os painéis ou solte em cima de uma pasta. "
-                                     "Botão direito para mais opções.")
+        self.statusBar().showMessage(_("Cada aba é uma conexão. Arraste entre os painéis ou solte em cima de uma pasta. "
+                                     "Botão direito para mais opções."))
 
     # --- abas
     def session(self): return self.tabs.currentWidget()
@@ -2097,7 +2410,7 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted: return
         v = dlg.values()
         if not v["host"] or not v["user"]:
-            QMessageBox.warning(self, "Dados incompletos", "Informe servidor e usuário."); return
+            QMessageBox.warning(self, _("Dados incompletos"), _("Informe servidor e usuário.")); return
         title = None
         if dlg.save_fav.isChecked():
             fav = dict(name=dlg.fav_name.text().strip() or f"{v['user']}@{v['host']}", host=v["host"], port=v["port"],
@@ -2105,7 +2418,7 @@ class MainWindow(QMainWindow):
             fav = self.favorites.upsert(fav); title = fav["name"]
             if fav["save_password"] and v["password"]:
                 try: Favorites.set_password(fav["id"], v["password"])
-                except Exception as e: QMessageBox.warning(self, "Senha não salva", str(e))
+                except Exception as e: QMessageBox.warning(self, _("Senha não salva"), str(e))
         s = self.target_session()
         s.connect_to(v["host"], v["port"], v["user"], v["password"], title, v["remote_dir"])
 
@@ -2115,12 +2428,12 @@ class MainWindow(QMainWindow):
             password = ""
             if fav.get("save_password"):
                 if not Unlock.ensure(fav.get("name") or fav["host"]):
-                    self.statusBar().showMessage("Conexão cancelada (Touch ID não confirmado)."); return
+                    self.statusBar().showMessage(_("Conexão cancelada (Touch ID não confirmado).")); return
                 password = Favorites.get_password(fav["id"])
             if not password:
-                extra = "\n\nEla será salva e, das próximas vezes, liberada pelo Touch ID." if fav.get("save_password") else ""
-                pwd, ok = QInputDialog.getText(self, f"Senha — {fav['name']}",
-                                               f"Senha SSH de {fav['user']}@{fav['host']}\n(vazio = usar chave SSH){extra}",
+                extra = _("\n\nEla será salva e, das próximas vezes, liberada pelo Touch ID.") if fav.get("save_password") else ""
+                pwd, ok = QInputDialog.getText(self, _(f"Senha — {fav['name']}"),
+                                               _(f"Senha SSH de {fav['user']}@{fav['host']}\n(vazio = usar chave SSH){extra}"),
                                                QLineEdit.Password)
                 if not ok: return
                 password = pwd; asked = True
@@ -2129,7 +2442,7 @@ class MainWindow(QMainWindow):
                           fav.get("remote_dir", ""), fav.get("local_dir", ""))
         if ok and asked and password and fav.get("save_password"):
             try: Favorites.set_password(fav["id"], password); Unlock.unlocked = True
-            except Exception as e: self.statusBar().showMessage(f"Senha não salva: {e}")
+            except Exception as e: self.statusBar().showMessage(_(f"Senha não salva: {e}"))
 
     def _show_fav_menu(self):
         self._build_fav_menu()
@@ -2138,38 +2451,55 @@ class MainWindow(QMainWindow):
     def _build_fav_menu(self):
         self.fav_menu.clear()
         if not self.favorites.items:
-            a = self.fav_menu.addAction("(nenhum favorito ainda)"); a.setEnabled(False)
+            a = self.fav_menu.addAction(_("(nenhum favorito ainda)")); a.setEnabled(False)
         for f in self.favorites.items:
             self.fav_menu.addAction(f"{f.get('name')}   —   {f['user']}@{f['host']}",
                                     lambda f=f: self.connect_favorite(f))
         self.fav_menu.addSeparator()
         if self.session() and self.session().connected:
-            self.fav_menu.addAction("Adicionar esta conexão aos favoritos…", self.add_current_to_favorites)
-        self.fav_menu.addAction("Gerenciar favoritos…", self.manage_favorites)
+            self.fav_menu.addAction(_("Adicionar esta conexão aos favoritos…"), self.add_current_to_favorites)
+        self.fav_menu.addAction(_("Gerenciar favoritos…"), self.manage_favorites)
         if Unlock.unlocked:
-            self.fav_menu.addAction("🔒 Bloquear favoritos (pedir Touch ID de novo)", self._lock)
+            self.fav_menu.addAction(_("🔒 Bloquear favoritos (pedir Touch ID de novo)"), self._lock)
 
     def _lock(self):
-        Unlock.lock(); self.statusBar().showMessage("Favoritos bloqueados — o próximo uso de senha salva pede Touch ID.")
+        Unlock.lock(); self.statusBar().showMessage(_("Favoritos bloqueados — o próximo uso de senha salva pede Touch ID."))
 
     def add_current_to_favorites(self):
         s = self.session(); t = s.ssh.get_transport(); host, port = t.getpeername()[:2]
         user = t.get_username()
-        name, ok = QInputDialog.getText(self, "Adicionar aos favoritos", "Nome do favorito:", text=s.title)
+        name, ok = QInputDialog.getText(self, _("Adicionar aos favoritos"), _("Nome do favorito:"), text=s.title)
         if not ok: return
         fav = self.favorites.upsert(dict(name=name.strip() or s.title, host=host, port=port, user=user,
                                          remote_dir=s.remote_path, local_dir=s.local_path, save_password=False))
-        QMessageBox.information(self, "Favorito salvo",
-                                f"“{fav['name']}” foi salvo. Para guardar a senha, abra “Gerenciar favoritos…”.")
+        QMessageBox.information(self, _("Favorito salvo"),
+                                _(f"“{fav['name']}” foi salvo. Para guardar a senha, abra “Gerenciar favoritos…”."))
 
     def manage_favorites(self):
         dlg = FavoritesDialog(self.favorites, self)
         dlg.connect_requested.connect(lambda fav, pwd: QTimer.singleShot(0, lambda: self.connect_favorite(fav, pwd)))
         dlg.exec()
 
+    def change_language(self, code):
+        if code == LANG: return
+        save_language(code)
+        new = TR_EN if code == "en" else {}
+        ask = lambda t: new.get(t, t)       # pergunta já no idioma escolhido
+        box = QMessageBox(QMessageBox.Question, ask("Idioma alterado"),
+                          ask("O MacSCP precisa reiniciar para mudar o idioma. Reiniciar agora?"),
+                          QMessageBox.Yes | QMessageBox.No, self)
+        box.button(QMessageBox.Yes).setText(ask("Reiniciar agora")); box.button(QMessageBox.No).setText(ask("Depois"))
+        if box.exec() == QMessageBox.Yes: self.restart_app()
+
+    def restart_app(self):
+        if not self.close(): return          # usuário cancelou (transferências/edições pendentes)
+        if getattr(sys, "frozen", False): QProcess.startDetached(sys.executable, sys.argv[1:])
+        else: QProcess.startDetached(sys.executable, sys.argv)
+        QApplication.quit()
+
     def closeEvent(self, event):
         running = sum(1 for i in range(self.tabs.count()) for t in self.tabs.widget(i).transfers if t.isRunning())
-        if running and QMessageBox.question(self, "Sair", f"Há {running} transferência(s) em andamento. Cancelar e sair?",
+        if running and QMessageBox.question(self, _("Sair"), _(f"Há {running} transferência(s) em andamento. Cancelar e sair?"),
                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             event.ignore(); return
         for i in range(self.tabs.count()):
@@ -2191,6 +2521,7 @@ def self_test():
         k = AESGCM.generate_key(bit_length=256); n = os.urandom(12)
         assert AESGCM(k).decrypt(n, AESGCM(k).encrypt(n, b"x", None), None) == b"x"
         print("  Cofre de senhas: OK")
+        print(f"  Ícone: {'OK' if os.path.exists(resource_path('MacSCP_icon.png')) else 'não encontrado'}")
     except Exception as e:
         print(f"  Cofre de senhas: ERRO — {e}"); ok = False
     return 0 if ok else 1
@@ -2199,6 +2530,12 @@ def self_test():
 def main():
     if "--self-test" in sys.argv: sys.exit(self_test())
     app = QApplication(sys.argv); app.setApplicationName(APP_NAME); app.setApplicationVersion(APP_VERSION)
+    app.setWindowIcon(app_icon())
+    global LANG
+    LANG = load_language()
+    if LANG == "pt":   # botões padrão do Qt (Yes/No/Cancel…) em português
+        tr = QTranslator(app)
+        if tr.load("qtbase_pt_BR", QLibraryInfo.path(QLibraryInfo.TranslationsPath)): app.installTranslator(tr)
     win = MainWindow(); win.show(); sys.exit(app.exec())
 
 

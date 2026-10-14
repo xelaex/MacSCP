@@ -37,6 +37,7 @@ source .venv/bin/activate
 python -m pip install --no-compile --upgrade pip setuptools wheel
 python -m pip install --no-compile -r requirements.txt
 pyinstaller --noconfirm --clean --windowed --name "MacSCP" --osx-bundle-identifier "MacSCP.clientesftp" \
+  --icon MacSCP.icns --add-data "MacSCP_icon.png:." \
   --collect-all objc --collect-all Foundation --collect-all CoreFoundation --collect-all LocalAuthentication \
   main.py
 APP="$PWD/dist/MacSCP.app"
