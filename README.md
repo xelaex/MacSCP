@@ -4,7 +4,10 @@ Esta é uma aplicação desktop independente. **Não inicia servidor web e não 
 
 ## Gerar o aplicativo
 
-Passo a passo completo em português: veja o **[LEIAME.txt](LEIAME.txt)**.
+Passo a passo completo em português: veja o **[LEIAME.txt](LEIAME.txt)**.  
+Step-by-step guide in English: see **[README_EN.txt](README_EN.txt)**.
+
+O app está em **português e inglês** — menu **Idioma / Language** (*the app is available in English: menu Idioma / Language → English*).
 
 Resumo, no Terminal:
 

@@ -22,12 +22,16 @@ ANTES DE COMEÇAR
 INSTALAÇÃO
 ----------
 1. Baixe o MacSCP
-   No GitHub, clique em "Code" > "Download ZIP".
+   No GitHub, faça uma destas:
+   - abra "Releases" (coluna da direita) e baixe o "Source code (zip)"
+     da versão mais nova, ou
+   - clique em "Code" > "Download ZIP".
 
 2. Descompacte
    Dê dois cliques no arquivo .zip baixado (normalmente ele fica na
-   pasta Downloads). Vai aparecer a pasta "MacSCP-main", e dentro
-   dela a pasta "macos_app".
+   pasta Downloads). Vai aparecer a pasta "MacSCP-<versão>", por
+   exemplo "MacSCP-1.2.1" (baixando pela Release), ou "MacSCP-main"
+   (pelo Code > Download ZIP). Dentro dela fica a pasta "macos_app".
 
 3. Abra o Terminal
    Aplicativos > Utilitários > Terminal
@@ -82,6 +86,10 @@ DICAS RÁPIDAS
 - Dois cliques em um arquivo de texto abrem o editor (Cmd + S salva
   direto no servidor).
 - Console SSH: terminal completo. O comando "exit" fecha a janela.
+- Sobre: barra de menus MacSCP > "Sobre o MacSCP". A versão também
+  aparece no título da janela.
+- Idioma: barra de menus "Idioma / Language" > Português ou English
+  (o app reinicia sozinho).
 
 
 ATUALIZAR PARA UMA VERSÃO NOVA
