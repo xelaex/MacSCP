@@ -21,6 +21,7 @@ O arquivo `.app` será criado em `macos_app/dist/MacSCP.app`. Para distribuir pa
 - Conexão SSH autenticada diretamente no servidor informado.
 - A primeira conexão pede confirmação da impressão digital da chave do servidor; confirme-a por um canal independente e confiável.
 - Chaves aceitas são gravadas em `~/.ssh/known_hosts` com permissões restritas.
+- Se a chave de um servidor mudar (servidor reinstalado, IP reaproveitado…), o app mostra a chave antiga e a nova e, se você aceitar, atualiza só a linha daquele servidor no `known_hosts` — o resto do arquivo (usado pelo `ssh` do Mac) fica intacto.
 - Senhas de favoritos ficam criptografadas (AES-256) em `~/Library/Application Support/MacSCP/senhas.bin`, liberadas pelo **Touch ID**. Não usa o app Acesso às Chaves.
 - Os favoritos (sem senha) ficam em `~/Library/Application Support/MacSCP/favoritos.json`.
 - Conexões que não estão nos favoritos não têm a senha salva.
