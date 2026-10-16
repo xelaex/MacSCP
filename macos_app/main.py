@@ -7,7 +7,7 @@ from pathlib import Path
 
 import paramiko
 import pyte
-from PySide6.QtCore import Qt, QMimeData, QThread, Signal, QUrl, QTimer, QFile
+from PySide6.QtCore import Qt, QMimeData, QThread, Signal, QUrl, QTimer, QFile, QObject
 from PySide6.QtGui import (QDrag, QAction, QKeySequence, QBrush, QColor, QIcon, QPixmap, QPainter, QFont, QPalette,
                            QTextDocument, QTextCursor)
 from PySide6.QtCore import QFileInfo, QByteArray, QSize, QRect, QRegularExpression, QPointF, QRectF, QEvent
@@ -18,13 +18,13 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox,
     QPushButton, QTreeWidget, QTreeWidgetItem, QFileDialog, QMessageBox, QInputDialog, QSplitter,
     QDialog, QFormLayout, QDialogButtonBox, QPlainTextEdit, QMenu, QAbstractItemView, QTabWidget,
-    QToolButton, QCheckBox, QListWidget, QListWidgetItem, QProgressBar, QFileIconProvider, QGridLayout,
+    QToolButton, QCheckBox, QListWidget, QListWidgetItem, QProgressBar, QFileIconProvider, QGridLayout, QComboBox,
 )
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM   # já vem com o paramiko
 
 APP_NAME = "MacSCP"
-APP_VERSION = "1.2.1"          # única fonte da versão (o build lê daqui)
+APP_VERSION = "1.4.0"          # única fonte da versão (o build lê daqui)
 APP_AUTHOR = "Xela"
 APP_URL = "https://github.com/xelaex/MacSCP"
 
@@ -35,6 +35,26 @@ def resource_path(name):
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, name)
 
+
+
+def unique_copy_name(name, exists):
+    """“foto.jpg” → “foto cópia.jpg”, “foto cópia 2.jpg”…  (exists(nome) diz se já existe)."""
+    multi = next((e for e in (".tar.gz", ".tar.bz2", ".tar.xz") if name.lower().endswith(e)), None)
+    base, ext = (name[: -len(multi)], name[-len(multi):]) if multi else os.path.splitext(name)
+    if base.startswith('.') and not ext: base, ext = name, ""
+    suffix = _(" cópia")
+    cand = f"{base}{suffix}{ext}"; n = 2
+    while exists(cand):
+        cand = f"{base}{suffix} {n}{ext}"; n += 1
+    return cand
+
+
+def app_bundle_path():
+    """Caminho do MacSCP.app quando rodando o app empacotado no macOS (senão None)."""
+    if sys.platform != "darwin" or not getattr(sys, "frozen", False): return None
+    p = os.path.abspath(sys.executable)          # .../MacSCP.app/Contents/MacOS/MacSCP
+    for _i in range(3): p = os.path.dirname(p)
+    return p if p.endswith(".app") else None
 
 def app_icon():
     p = resource_path("MacSCP_icon.png")
@@ -278,6 +298,112 @@ TR_EN = {
  "{0} — {1} arquivo(s) • {2}": "{0} — {1} file(s) • {2}",
  "(nenhum favorito ainda)": "(no favorites yet)",
  "Sair": "Quit",
+ "Colar dentro de “%s”": "Paste into “%s”",
+ "{0} item(ns) copiado(s)": "{0} item(s) copied",
+ "Nada para colar.": "Nothing to paste.",
+ " cópia": " copy",
+ "nesta pasta": "in this folder",
+ "Substituir": "Replace",
+ "Manter os dois": "Keep both",
+ "Pular": "Skip",
+ "Já existe um item chamado “{0}” {1}.": "An item named “{0}” already exists {1}.",
+ "Copiar entre servidores": "Copy between servers",
+ "Itens de outra aba (outro servidor) não podem ser colados aqui. Baixe para o computador primeiro.": "Items from another tab (another server) can't be pasted here. Download them to your computer first.",
+ "Não dá para copiar “{0}” para dentro dela mesma.": "Can't copy “{0}” into itself.",
+ "Copiando em": "Copying on",
+ # --- versão 1.4.0
+ "Criado: {0}": "Created: {0}",
+ "Extraído em: {0}": "Extracted to: {0}",
+ "Transferências": "Transfers",
+ "Limpar concluídas": "Clear finished",
+ "Histórico (log)": "History (log)",
+ "Filtrar…": "Filter…",
+ "Sincronizar pastas": "Sync folders",
+ "Apagar no destino o que não existe na origem": "Delete at the destination what doesn't exist at the source",
+ "Pasta local": "Local folder",
+ "Pasta no servidor": "Server folder",
+ "Direção": "Direction",
+ "Comparar": "Compare",
+ "Clique em “Comparar” para ver o que vai mudar.": "Click “Compare” to see what will change.",
+ "Sincronizar": "Sync",
+ "Comparando…": "Comparing…",
+ "Novo": "New",
+ "Alterado": "Changed",
+ "Apagar no destino": "Delete at destination",
+ "Sincronizar → servidor": "Sync → server",
+ "Sincronizar → computador": "Sync → computer",
+ "SINCRONIZOU": "SYNCED",
+ "SALVOU": "SAVED",
+ "Digite um caminho e tecle Enter": "Type a path and press Enter",
+ "CONECTOU": "CONNECTED",
+ "Carregando…": "Loading…",
+ "CRIOU PASTA": "CREATED FOLDER",
+ "CRIOU ARQUIVO": "CREATED FILE",
+ "Aplicar a todos": "Apply to all",
+ "Compactar": "Compress",
+ "Formato:": "Format:",
+ "Arquivos": "Files",
+ "Nome do arquivo compactado:": "Archive name:",
+ "Compactando {0}": "Compressing {0}",
+ "Extraindo {0}": "Extracting {0}",
+ "Ferramentas": "Tools",
+ "⇅ Transferências": "⇅ Transfers",
+ "Sincronizar…": "Sync…",
+ " ({0} retomado(s))": " ({0} resumed)",
+ "Retomando {0}": "Resuming {0}",
+ "Transferência": "Transfer",
+ "Servidor": "Server",
+ "Progresso": "Progress",
+ "Detalhes": "Details",
+ "Status": "Status",
+ "Pausar": "Pause",
+ "Retomar": "Resume",
+ "Simultâneas:": "Simultaneous:",
+ "Limpar histórico": "Clear history",
+ "(histórico vazio)": "(history is empty)",
+ "Apagar todo o histórico?": "Delete the whole history?",
+ "o servidor devolveu o código {0}": "the server returned code {0}",
+ "Computador → Servidor (enviar)": "Computer → Server (upload)",
+ "Servidor → Computador (baixar)": "Server → Computer (download)",
+ "Ação": "Action",
+ "Caminho": "Path",
+ "A pasta local não existe.": "The local folder does not exist.",
+ "{0} novo(s) • {1} alterado(s) • {2} para apagar": "{0} new • {1} changed • {2} to delete",
+ "Tudo igual — nada para sincronizar.": "Everything matches — nothing to sync.",
+ "{0} item(ns) com “{1}”": "{0} item(s) matching “{1}”",
+ "DESCONECTOU": "DISCONNECTED",
+ "{0} item(ns) • {1}": "{0} item(s) • {1}",
+ "Mover para cá": "Move here",
+ "🗜  Compactar…": "🗜  Compress…",
+ "PERMISSÕES": "PERMISSIONS",
+ "Movendo para": "Moving to",
+ "Movendo de": "Moving from",
+ "{0} item(ns) recortado(s) — ⌘V para mover": "{0} item(s) cut — ⌘V to move",
+ "Sincronizar pastas…": "Sync folders…",
+ "Histórico (log)…": "History (log)…",
+ "COPIOU": "COPIED",
+ "Concluído": "Done",
+ "{0} item(ns) serão apagados no destino. Continuar?": "{0} item(s) will be deleted at the destination. Continue?",
+ "Pasta não encontrada: {0}": "Folder not found: {0}",
+ "FALHA AO CONECTAR": "CONNECTION FAILED",
+ "Recortar": "Cut",
+ "📦  Extrair aqui": "📦  Extract here",
+ "RENOMEOU": "RENAMED",
+ "MOVEU": "MOVED",
+ "COMPACTOU": "COMPRESSED",
+ "EXTRAIU": "EXTRACTED",
+ "Pausada": "Paused",
+ "📦  Extrair em “%s/”": "📦  Extract to “%s/”",
+ " (pasta)": " (folder)",
+ "MANDOU PARA O LIXO": "MOVED TO TRASH",
+ "EXCLUIU": "DELETED",
+ "ENVIOU": "UPLOADED",
+ "BAIXOU": "DOWNLOADED",
+ "APAGOU": "DELETED",
+ "Na fila": "Queued",
+ "Transferindo": "Transferring",
+ "Concluída": "Done",
+ "Cancelada": "Cancelled",
  # menu de idioma
  "Idioma": "Language",
  "Reiniciar agora": "Restart now",
@@ -1291,145 +1417,858 @@ class TerminalDialog(QDialog):
         event.accept()
 
 
+# ============================================================================= histórico (log)
+
+LOG_MAX_BYTES = 5 * 1024 * 1024
+_LOG_LOCK = threading.Lock()
+
+
+def log_path():
+    return config_dir() / "historico.log"
+
+
+def log_event(action, detail="", server=""):
+    """Grava uma linha no histórico: data/hora, servidor, ação e detalhes. Nunca derruba o app."""
+    try:
+        p = log_path()
+        line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  " + (f"[{server}]  " if server else "") + f"{action}  {detail}"
+        with _LOG_LOCK:
+            if p.exists() and p.stat().st_size > LOG_MAX_BYTES:
+                p.replace(p.with_name("historico.1.log"))
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(line.rstrip() + "\n")
+    except Exception:
+        pass
+
+
 # ============================================================================= transferência em segundo plano
+
+PART_SUFFIX = ".macscp-part"      # arquivo incompleto (permite retomar)
+CHUNK = 262144
+ARCHIVE_EXTS = (".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz", ".tar", ".zip", ".gz")
+
+
+def archive_ext(name):
+    low = name.lower()
+    for ext in ARCHIVE_EXTS:
+        if low.endswith(ext): return ext
+    return None
+
 
 class Cancelled(Exception):
     pass
 
 
+_LIVE_THREADS = set()
+
+
+class _Reaper(QObject):
+    """Vive na thread principal: só solta a thread depois que ela terminou de verdade."""
+
+    def reap(self):
+        t = self.sender()
+        if t is None: return
+        try: t.wait(2000)
+        except RuntimeError: pass
+        QTimer.singleShot(0, lambda t=t: _LIVE_THREADS.discard(t))
+
+
+_REAPER = None
+
+
+def wait_all_threads(timeout_ms=4000):
+    """Ao sair: pede para as tarefas pararem e espera elas terminarem."""
+    for t in list(_LIVE_THREADS):
+        try:
+            if hasattr(t, "cancel"): t.cancel(discard=False) if "discard" in t.cancel.__code__.co_varnames else t.cancel()
+            t.wait(timeout_ms)
+        except Exception: pass
+
+
+def keep_alive(thread):
+    """Guarda a referência da thread até ela terminar (soltar antes derruba o app)."""
+    global _REAPER
+    if _REAPER is None: _REAPER = _Reaper()
+    _LIVE_THREADS.add(thread)
+    thread.finished.connect(_REAPER.reap)          # conexão “queued”: roda na thread principal
+    return thread
+
+
 class TransferWorker(QThread):
-    """Faz upload/download num canal SFTP próprio, sem travar a janela. Pode ser cancelado."""
-    progress = Signal(object, object, str)     # bytes feitos, bytes totais, arquivo atual
+    """Envia/baixa/copia num canal SFTP próprio, sem travar a janela.
+    - arquivos são gravados como “nome.macscp-part” e só ganham o nome final no fim → dá para retomar;
+    - mantém a data de modificação original (arquivos e pastas) e as permissões de quem já existia;
+    - jobs: ('up'|'down'|'rcopy', origem, destino) e ('rdel'|'ldel', caminho, None)."""
+    progress = Signal(object, object, str)     # bytes feitos, bytes totais, texto
     finished_ok = Signal(bool, str, int)       # sucesso, mensagem, nº de arquivos
 
-    def __init__(self, ssh, jobs):
-        super().__init__(); self.ssh = ssh; self.jobs = jobs   # [(direção 'up'|'down', origem, destino)]
-        self._cancel = False; self.done_bytes = 0; self.total = 0; self._last_emit = 0; self.files_done = 0
+    def __init__(self, ssh, jobs, server="", move=False):
+        super().__init__(); self.ssh = ssh; self.jobs = jobs; self.server = server; self.move = move
+        self._cancel = False; self.discard = True; self.done_bytes = 0; self.total = 0
+        self._last_emit = 0; self.files_done = 0; self.resumed = 0; self._partial = None; self.dir_times = []
 
-    def cancel(self): self._cancel = True
+    def cancel(self, discard=True):
+        """discard=False = pausar (mantém o pedaço já transferido para retomar depois)."""
+        self.discard = discard; self._cancel = True
 
     def _check(self):
         if self._cancel: raise Cancelled()
 
-    def _emit(self, name, force=False):
+    def _emit(self, text, force=False):
         now = time.monotonic()
         if force or now - self._last_emit > 0.1:
-            self._last_emit = now; self.progress.emit(self.done_bytes, self.total, name)
+            self._last_emit = now; self.progress.emit(self.done_bytes, self.total, text)
 
-    # --- monta a lista de passos e calcula o total de bytes
+    # --- planejamento: (tipo, origem, destino, tamanho, mtime)
     def _plan_up(self, src, dst, plan):
         self._check()
         if os.path.islink(src): return
+        st = os.stat(src)
         if os.path.isdir(src):
-            plan.append(('rmkdir', src, dst, 0))
-            for n in sorted(os.listdir(src)): self._plan_up(os.path.join(src, n), posixpath.join(dst, n), plan)
+            plan.append(('rmkdir', src, dst, 0, st.st_mtime))
+            for n in sorted(os.listdir(src)):
+                if n.endswith(PART_SUFFIX): continue
+                self._plan_up(os.path.join(src, n), posixpath.join(dst, n), plan)
         elif os.path.isfile(src):
-            plan.append(('put', src, dst, os.path.getsize(src)))
+            plan.append(('put', src, dst, st.st_size, st.st_mtime))
 
     def _plan_down(self, sftp, src, dst, plan):
         self._check()
         st = sftp.lstat(src)
         if stat.S_ISLNK(st.st_mode): return
         if stat.S_ISDIR(st.st_mode):
-            plan.append(('lmkdir', src, dst, 0))
+            plan.append(('lmkdir', src, dst, 0, st.st_mtime))
             for a in sorted(sftp.listdir_attr(src), key=lambda a: a.filename):
+                if a.filename.endswith(PART_SUFFIX): continue
                 self._plan_down(sftp, posixpath.join(src, a.filename), os.path.join(dst, a.filename), plan)
         elif stat.S_ISREG(st.st_mode):
-            plan.append(('get', src, dst, st.st_size or 0))
+            plan.append(('get', src, dst, st.st_size or 0, st.st_mtime))
 
+    def _remote_copy(self, sftp, src, dst, plan):
+        """Copia no servidor com `cp -a` (rápido, mantém permissões/datas); sem shell, copia pelo SFTP."""
+        import shlex
+        self.progress.emit(0, 0, posixpath.basename(src))
+        try: is_dir_target = stat.S_ISDIR(sftp.stat(dst).st_mode)
+        except IOError: is_dir_target = False
+        if is_dir_target and stat.S_ISDIR(sftp.stat(src).st_mode):
+            cmd = f"cp -a -- {shlex.quote(src.rstrip('/') + '/.')} {shlex.quote(dst.rstrip('/') + '/')}"
+        else:
+            cmd = f"cp -a -- {shlex.quote(src)} {shlex.quote(dst)}"
+        try:
+            if run_remote(self.ssh, cmd, self)[0] == 0:
+                self.files_done += 1; log_event(_("COPIOU"), f"{src} → {dst}", self.server); return
+        except Cancelled:
+            raise
+        except Exception:
+            pass
+        self._plan_rcopy(sftp, src, dst, plan)
+
+    def _plan_rcopy(self, sftp, src, dst, plan):
+        self._check()
+        st = sftp.lstat(src)
+        if stat.S_ISLNK(st.st_mode): return
+        if stat.S_ISDIR(st.st_mode):
+            plan.append(('rmkdir', src, dst, 0, st.st_mtime))
+            for a in sorted(sftp.listdir_attr(src), key=lambda a: a.filename):
+                self._plan_rcopy(sftp, posixpath.join(src, a.filename), posixpath.join(dst, a.filename), plan)
+        elif stat.S_ISREG(st.st_mode):
+            plan.append(('rcp', src, dst, st.st_size or 0, st.st_mtime))
+
+    # --- execução
     def run(self):
-        sftp = None; partial = None
+        sftp = None
         try:
             sftp = self.ssh.open_sftp()
             self.progress.emit(0, 0, _("Analisando arquivos…"))
             plan = []
             for direction, src, dst in self.jobs:
                 if direction == 'up': self._plan_up(src, dst, plan)
-                else: self._plan_down(sftp, src, dst, plan)
+                elif direction == 'down': self._plan_down(sftp, src, dst, plan)
+                elif direction == 'rcopy': self._remote_copy(sftp, src, dst, plan)
+                elif direction in ('rdel', 'ldel'): plan.append((direction, src, None, 0, None))
             self.total = sum(p[3] for p in plan)
 
-            for kind, src, dst, size in plan:
+            for kind, src, dst, size, mtime in plan:
                 self._check()
                 if kind == 'rmkdir':
                     try: sftp.mkdir(dst)
                     except IOError:
                         if not stat.S_ISDIR(sftp.stat(dst).st_mode):
                             raise RuntimeError(_(f"O destino já existe e não é pasta: {dst}"))
+                    self.dir_times.append(('remote', dst, mtime))
                 elif kind == 'lmkdir':
-                    os.makedirs(dst, exist_ok=True)
-                else:
-                    base = self.done_bytes; name = os.path.basename(src)
-                    def cb(sent, _total, base=base, name=name):
-                        if self._cancel: raise Cancelled()
-                        self.done_bytes = base + sent; self._emit(name)
-                    self._emit(name, force=True)
-                    partial = (kind, dst)
-                    if kind == 'put': sftp.put(src, dst, callback=cb)
-                    else:
-                        os.makedirs(os.path.dirname(dst) or '.', exist_ok=True); sftp.get(src, dst, callback=cb)
-                    partial = None
-                    self.done_bytes = base + size; self.files_done += 1; self._emit(name, force=True)
-            self.finished_ok.emit(True, _("Transferência concluída"), self.files_done)
+                    os.makedirs(dst, exist_ok=True); self.dir_times.append(('local', dst, mtime))
+                elif kind == 'put':
+                    self._put(sftp, src, dst, size, mtime); self.files_done += 1
+                    log_event(_("ENVIOU"), f"{src} → {dst}", self.server)
+                elif kind == 'get':
+                    self._get(sftp, src, dst, size, mtime); self.files_done += 1
+                    log_event(_("BAIXOU"), f"{src} → {dst}", self.server)
+                elif kind == 'rcp':
+                    self._rcp(sftp, src, dst, size, mtime); self.files_done += 1
+                    log_event(_("COPIOU"), f"{src} → {dst}", self.server)
+                elif kind == 'rdel':
+                    self._emit(posixpath.basename(src), force=True); remote_rmtree_raw(sftp, src)
+                    log_event(_("APAGOU"), src, self.server)
+                elif kind == 'ldel':
+                    self._emit(os.path.basename(src), force=True); local_remove(src)
+                    log_event(_("APAGOU"), src, self.server)
+
+            for side, path, mt in reversed(self.dir_times):        # data original das pastas (depois do conteúdo)
+                if mt is None: continue
+                try:
+                    if side == 'remote': sftp.utime(path, (mt, mt))
+                    else: os.utime(path, (mt, mt))
+                except Exception: pass
+
+            if self.move:                                          # mover = apagar a origem depois de tudo certo
+                for direction, src, dst in self.jobs:
+                    self._check()
+                    if direction == 'up': local_remove(src)
+                    elif direction == 'down': remote_rmtree_raw(sftp, src)
+                    log_event(_("MOVEU"), f"{src} → {dst}", self.server)
+            extra = _(f" ({self.resumed} retomado(s))") if self.resumed else ""
+            self.finished_ok.emit(True, _("Transferência concluída") + extra, self.files_done)
         except Cancelled:
-            self._remove_partial(sftp, partial)
-            self.finished_ok.emit(False, _("Transferência cancelada"), self.files_done)
+            if self.discard: self._remove_partial(sftp)
+            self.finished_ok.emit(False, _("Transferência cancelada") if self.discard else _("Pausada"), self.files_done)
         except Exception as e:
-            self._remove_partial(sftp, partial)
+            # o pedaço já transferido fica guardado: “Retomar” continua de onde parou
             self.finished_ok.emit(False, _(f"Erro: {e}"), self.files_done)
         finally:
             try:
                 if sftp: sftp.close()
             except Exception: pass
 
-    @staticmethod
-    def _remove_partial(sftp, partial):
-        """Apaga o arquivo que ficou pela metade."""
-        if not partial: return
-        kind, dst = partial
+    def _put(self, sftp, src, dst, size, mtime):
+        name = os.path.basename(src); part = dst + PART_SUFFIX; offset = 0
         try:
-            if kind == 'put' and sftp: sftp.remove(dst)
-            elif kind == 'get' and os.path.exists(dst): os.remove(dst)
+            psize = sftp.stat(part).st_size or 0
+            if 0 < psize <= size: offset = psize
+        except IOError:
+            pass
+        try: old_mode = stat.S_IMODE(sftp.stat(dst).st_mode)
+        except IOError: old_mode = None
+        base = self.done_bytes; self.done_bytes = base + offset
+        if offset: self.resumed += 1; self._emit(_(f"Retomando {name}"), force=True)
+        else: self._emit(name, force=True)
+        self._partial = ('remote', part)
+        with open(src, 'rb') as fi, sftp.open(part, 'r+b' if offset else 'wb') as fo:
+            fo.set_pipelined(True)
+            if offset: fi.seek(offset); fo.seek(offset)
+            done = offset
+            while True:
+                self._check()
+                chunk = fi.read(CHUNK)
+                if not chunk: break
+                fo.write(chunk); done += len(chunk); self.done_bytes = base + done; self._emit(name)
+        try:
+            sftp.posix_rename(part, dst)
+        except Exception:
+            try: sftp.remove(dst)
+            except IOError: pass
+            sftp.rename(part, dst)
+        self._partial = None
+        try: sftp.chmod(dst, old_mode if old_mode is not None else stat.S_IMODE(os.stat(src).st_mode))
+        except Exception: pass
+        try: sftp.utime(dst, (mtime, mtime))
+        except Exception: pass
+        self.done_bytes = base + size
+
+    def _get(self, sftp, src, dst, size, mtime):
+        name = posixpath.basename(src); part = dst + PART_SUFFIX; offset = 0
+        if os.path.exists(part):
+            psize = os.path.getsize(part)
+            if 0 < psize <= size: offset = psize
+        old_mode = stat.S_IMODE(os.stat(dst).st_mode) if os.path.exists(dst) else None
+        os.makedirs(os.path.dirname(dst) or '.', exist_ok=True)
+        base = self.done_bytes; self.done_bytes = base + offset
+        if offset: self.resumed += 1; self._emit(_(f"Retomando {name}"), force=True)
+        else: self._emit(name, force=True)
+        self._partial = ('local', part)
+        with sftp.open(src, 'rb') as fi, open(part, 'r+b' if offset else 'wb') as fo:
+            if offset: fi.seek(offset); fo.seek(offset)
+            fi.prefetch(size)                      # lê adiantado a partir da posição atual (rápido)
+            done = offset
+            while True:
+                self._check()
+                chunk = fi.read(CHUNK)
+                if not chunk: break
+                fo.write(chunk); done += len(chunk); self.done_bytes = base + done; self._emit(name)
+        os.replace(part, dst); self._partial = None
+        if old_mode is not None:
+            try: os.chmod(dst, old_mode)
+            except Exception: pass
+        if mtime:
+            try: os.utime(dst, (mtime, mtime))
+            except Exception: pass
+        self.done_bytes = base + size
+
+    def _rcp(self, sftp, src, dst, size, mtime):
+        base = self.done_bytes; name = posixpath.basename(src); self._emit(name, force=True)
+        self._partial = ('remote', dst)
+        with sftp.open(src, 'rb') as fi, sftp.open(dst, 'wb') as fo:
+            fi.prefetch(size); fo.set_pipelined(True); done = 0
+            while True:
+                self._check()
+                chunk = fi.read(CHUNK)
+                if not chunk: break
+                fo.write(chunk); done += len(chunk); self.done_bytes = base + done; self._emit(name)
+        self._partial = None
+        try: sftp.chmod(dst, stat.S_IMODE(sftp.stat(src).st_mode))
+        except Exception: pass
+        try: sftp.utime(dst, (mtime, mtime))
+        except Exception: pass
+        self.done_bytes = base + size
+
+    def _remove_partial(self, sftp):
+        """Cancelar (não pausar): apaga o arquivo que ficou pela metade."""
+        if not self._partial: return
+        side, path = self._partial
+        try:
+            if side == 'remote' and sftp: sftp.remove(path)
+            elif side == 'local' and os.path.exists(path): os.remove(path)
         except Exception: pass
 
 
-class TransferDialog(QDialog):
-    """Janela de progresso (não bloqueia o app) com botão Cancelar."""
+def remote_rmtree_raw(sftp, path):
+    st = sftp.lstat(path)
+    if stat.S_ISDIR(st.st_mode):
+        for a in sftp.listdir_attr(path): remote_rmtree_raw(sftp, posixpath.join(path, a.filename))
+        sftp.rmdir(path)
+    else:
+        sftp.remove(path)
 
-    def __init__(self, title, worker, on_finish, parent=None):
-        super().__init__(parent); self.setWindowTitle(title); self.setMinimumWidth(460)
-        self.setAttribute(Qt.WA_DeleteOnClose); self.worker = worker; self.on_finish = on_finish
-        self.started = time.monotonic(); self.finished = False
+
+def local_remove(path):
+    if os.path.isdir(path) and not os.path.islink(path): shutil.rmtree(path)
+    elif os.path.lexists(path): os.remove(path)
+
+
+def run_remote(ssh, cmd, worker=None, timeout=None):
+    """Executa um comando no servidor. Retorna (código de saída, stdout, stderr). Cancelável pelo worker."""
+    _i, out, err = ssh.exec_command(cmd, timeout=30)
+    ch = out.channel; t0 = time.monotonic(); buf_out = b""; buf_err = b""
+    while not ch.exit_status_ready():
+        if worker is not None and worker._cancel: ch.close(); raise Cancelled()
+        if timeout and time.monotonic() - t0 > timeout: ch.close(); raise RuntimeError("timeout")
+        while ch.recv_ready(): buf_out += ch.recv(65536)
+        while ch.recv_stderr_ready(): buf_err += ch.recv_stderr(65536)
+        time.sleep(0.05)
+    code = ch.recv_exit_status()
+    buf_out += out.read(); buf_err += err.read()
+    return code, buf_out.decode("utf-8", "replace"), buf_err.decode("utf-8", "replace")
+
+
+class TaskWorker(QThread):
+    """Tarefa genérica em segundo plano (compactar, extrair…). fn(worker) devolve a mensagem final."""
+    progress = Signal(object, object, str)
+    finished_ok = Signal(bool, str, int)
+
+    def __init__(self, fn, label=""):
+        super().__init__(); self.fn = fn; self.label = label; self._cancel = False; self.discard = True
+
+    def cancel(self, discard=True): self.discard = discard; self._cancel = True
+
+    def _check(self):
+        if self._cancel: raise Cancelled()
+
+    def run(self):
+        try:
+            self.progress.emit(0, 0, self.label)
+            msg = self.fn(self)
+            self.finished_ok.emit(True, msg or _("Concluído"), 1)
+        except Cancelled:
+            self.finished_ok.emit(False, _("Transferência cancelada"), 0)
+        except Exception as e:
+            self.finished_ok.emit(False, _(f"Erro: {e}"), 0)
+
+
+# ============================================================================= fila de transferências
+
+class TransferEntry:
+    def __init__(self, session, title, jobs=None, move=False, task=None, on_done=None):
+        self.session = session; self.title = title; self.jobs = jobs or []; self.move = move
+        self.task = task; self.on_done = on_done
+        self.status = "queued"; self.worker = None; self.done = 0; self.total = 0; self.text = ""
+        self.started = None; self.message = ""; self.files = 0
+        self.pause_requested = False; self.cancel_requested = False
+        try: self.server = session.title
+        except Exception: self.server = ""
+
+
+STATUS_LABELS = {"queued": "Na fila", "running": "Transferindo", "paused": "Pausada", "done": "Concluída",
+                 "cancelled": "Cancelada", "error": "Erro"}
+
+
+class TransferQueue(QObject):
+    """Fila única para todas as abas: no máximo N transferências ao mesmo tempo, o resto espera."""
+    changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent); self.entries = []; self.max_parallel = 2
+
+    def running(self): return [e for e in self.entries if e.status == "running"]
+    def active(self, session=None):
+        return [e for e in self.entries if e.status in ("queued", "running", "paused")
+                and (session is None or e.session is session)]
+
+    def add(self, entry):
+        self.entries.append(entry); self.changed.emit(); self._pump()
+        return entry
+
+    def _pump(self):
+        for e in list(self.entries):
+            if len(self.running()) >= self.max_parallel: break
+            if e.status == "queued": self._start(e)
+
+    def _start(self, e):
+        ssh = getattr(e.session, "ssh", None) if e.session is not None else None
+        if e.task is None and ssh is None:
+            e.status = "error"; e.message = _("Sem conexão"); self.changed.emit(); return
+        e.pause_requested = e.cancel_requested = False
+        w = TaskWorker(e.task, e.title) if e.task is not None else TransferWorker(ssh, e.jobs, e.server, e.move)
+        e.worker = w; e.status = "running"; e.started = time.monotonic(); e.done = e.total = 0; e.message = ""
+        w.progress.connect(lambda d, t, txt, e=e: self._progress(e, d, t, txt))
+        w.finished_ok.connect(lambda ok, msg, n, e=e: self._finished(e, ok, msg, n))
+        keep_alive(w); w.start(); self.changed.emit()
+
+    def _progress(self, e, done, total, text):
+        e.done, e.total, e.text = done, total, text
+
+    def _finished(self, e, ok, msg, count):
+        e.files = count; e.message = msg; e.worker = None
+        if e.pause_requested: e.status = "paused"
+        elif ok: e.status = "done"
+        elif e.cancel_requested: e.status = "cancelled"
+        else: e.status = "error"
+        if e.on_done:
+            try: e.on_done(e)
+            except RuntimeError: pass        # aba já fechada
+        self.changed.emit(); self._pump()
+
+    def pause(self, e):
+        if e.status == "running" and e.worker: e.pause_requested = True; e.worker.cancel(discard=False)
+        elif e.status == "queued": e.status = "paused"; self.changed.emit()
+
+    def resume(self, e):
+        if e.status in ("paused", "error", "cancelled"):
+            e.status = "queued"; e.message = ""; self.changed.emit(); self._pump()
+
+    def cancel(self, e):
+        if e.status == "running" and e.worker: e.cancel_requested = True; e.worker.cancel(discard=True)
+        elif e.status in ("queued", "paused"): e.status = "cancelled"; self.changed.emit(); self._pump()
+
+    def clear_finished(self):
+        self.entries = [e for e in self.entries if e.status in ("queued", "running", "paused", "error")]
+        self.changed.emit()
+
+    def cancel_session(self, session, wait=True):
+        workers = []
+        for e in self.entries:
+            if e.session is session and e.status in ("queued", "running", "paused"):
+                if e.worker: workers.append(e.worker)
+                self.cancel(e)
+        if wait:
+            for w in workers:
+                try: w.wait(5000)
+                except RuntimeError: pass
+
+
+class TransferQueueWindow(QDialog):
+    """Janela “Transferências”: tudo o que está na fila, com pausar / retomar / cancelar."""
+
+    def __init__(self, queue, parent=None):
+        super().__init__(parent); self.queue = queue
+        self.setWindowTitle(_("Transferências")); self.resize(860, 380)
         lay = QVBoxLayout(self)
-        self.file_label = QLabel(_("Preparando…")); self.file_label.setWordWrap(True)
-        self.bar = QProgressBar(); self.bar.setRange(0, 0)
-        self.info = QLabel("")
-        self.cancel_btn = QPushButton(_("Cancelar")); self.cancel_btn.clicked.connect(self.cancel)
-        bl = QHBoxLayout(); bl.addStretch(1); bl.addWidget(self.cancel_btn)
-        lay.addWidget(self.file_label); lay.addWidget(self.bar); lay.addWidget(self.info); lay.addLayout(bl)
-        worker.progress.connect(self._progress); worker.finished_ok.connect(self._done)
+        self.tree = QTreeWidget(); self.tree.setColumnCount(5); self.tree.setRootIsDecorated(False)
+        self.tree.setHeaderLabels([_("Transferência"), _("Servidor"), _("Progresso"), _("Detalhes"), _("Status")])
+        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setColumnWidth(0, 280); self.tree.setColumnWidth(1, 120); self.tree.setColumnWidth(2, 150)
+        self.tree.setColumnWidth(3, 200)
+        lay.addWidget(self.tree, 1)
+        bl = QHBoxLayout()
+        for text, fn in ((_("Pausar"), self.queue.pause), (_("Retomar"), self.queue.resume), (_("Cancelar"), self.queue.cancel)):
+            b = QPushButton(text); b.clicked.connect(lambda _c=False, fn=fn: self._apply(fn)); bl.addWidget(b)
+        bl.addStretch(1)
+        bl.addWidget(QLabel(_("Simultâneas:")))
+        self.par = QSpinBox(); self.par.setRange(1, 6); self.par.setValue(queue.max_parallel)
+        self.par.valueChanged.connect(self._set_parallel); bl.addWidget(self.par)
+        clr = QPushButton(_("Limpar concluídas")); clr.clicked.connect(queue.clear_finished); bl.addWidget(clr)
+        lay.addLayout(bl)
+        self.items = {}
+        queue.changed.connect(self.rebuild)
+        self.timer = QTimer(self); self.timer.timeout.connect(self.update_progress); self.timer.start(300)
+        self.rebuild()
 
-    def _progress(self, done, total, name):
-        self.file_label.setText(name)
-        if total:
-            self.bar.setRange(0, 1000); self.bar.setValue(int(done * 1000 / total))
-            el = max(time.monotonic() - self.started, 0.001); speed = done / el
-            eta = (total - done) / speed if speed > 0 else 0
-            self.info.setText(_(f"{human_size(done)} de {human_size(total)}  •  {human_size(speed)}/s  •  "
-                              f"faltam ~{int(eta // 60)}min {int(eta % 60)}s"))
+    def _set_parallel(self, v):
+        self.queue.max_parallel = v; self.queue._pump()
 
-    def cancel(self):
-        if self.finished: self.close(); return
-        self.cancel_btn.setEnabled(False); self.cancel_btn.setText(_("Cancelando…")); self.worker.cancel()
+    def _selected(self):
+        return [it.data(0, Qt.UserRole) for it in self.tree.selectedItems()]
 
-    def _done(self, ok, msg, count):
-        self.finished = True
-        self.on_finish(ok, msg, count)
-        self.close()
+    def _apply(self, fn):
+        for e in self._selected(): fn(e)
 
-    def closeEvent(self, e):
-        if not self.finished:
-            self.worker.cancel(); self.cancel_btn.setText(_("Cancelando…")); e.ignore(); return
-        e.accept()
+    def rebuild(self):
+        sel = set(id(e) for e in self._selected())
+        self.tree.clear(); self.items = {}
+        for e in self.queue.entries:
+            it = QTreeWidgetItem([e.title, e.server, "", "", ""]); it.setData(0, Qt.UserRole, e)
+            self.tree.addTopLevelItem(it)
+            bar = QProgressBar(); bar.setRange(0, 1000); bar.setTextVisible(False); bar.setMaximumHeight(14)
+            self.tree.setItemWidget(it, 2, bar); self.items[id(e)] = (it, bar)
+            if id(e) in sel: it.setSelected(True)
+        self.update_progress()
+
+    def update_progress(self):
+        for e in self.queue.entries:
+            pair = self.items.get(id(e))
+            if not pair: continue
+            it, bar = pair
+            label = _(STATUS_LABELS.get(e.status, e.status))
+            if e.status == "running":
+                if e.total:
+                    bar.setRange(0, 1000); bar.setValue(int(e.done * 1000 / max(e.total, 1)))
+                    el = max(time.monotonic() - (e.started or time.monotonic()), 0.001); speed = e.done / el
+                    eta = (e.total - e.done) / speed if speed > 0 else 0
+                    det = _(f"{human_size(e.done)} de {human_size(e.total)}  •  {human_size(speed)}/s  •  "
+                            f"faltam ~{int(eta // 60)}min {int(eta % 60)}s")
+                else:
+                    bar.setRange(0, 0); det = e.text
+                it.setText(3, det); it.setToolTip(3, e.text)
+            else:
+                bar.setRange(0, 1000)
+                if e.status == "done": bar.setValue(1000)
+                elif e.total: bar.setValue(int(e.done * 1000 / max(e.total, 1)))     # pausada/erro: mostra até onde foi
+                it.setText(3, e.message + (f"  •  {human_size(e.done)} / {human_size(e.total)}" if e.total and e.status in ("paused", "error") else ""))
+            it.setText(4, label)
+            color = {"error": QColor("#d33"), "done": QColor("#2a8a3a"), "cancelled": QColor("#888")}.get(e.status)
+            it.setForeground(4, QBrush(color) if color else QBrush())
+
+
+class LogDialog(QDialog):
+    """Histórico de tudo o que foi feito (enviado, baixado, apagado, renomeado…)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent); self.setWindowTitle(_("Histórico (log)")); self.resize(900, 520)
+        lay = QVBoxLayout(self)
+        self.filter = QLineEdit(); self.filter.setPlaceholderText(_("Filtrar…")); self.filter.setClearButtonEnabled(True)
+        self.filter.textChanged.connect(self.reload); lay.addWidget(self.filter)
+        self.text = QPlainTextEdit(); self.text.setReadOnly(True); self.text.setLineWrapMode(QPlainTextEdit.NoWrap)
+        f = QFont("Menlo"); f.setStyleHint(QFont.Monospace); f.setPointSize(12); self.text.setFont(f)
+        lay.addWidget(self.text, 1)
+        bl = QHBoxLayout()
+        for text, fn in ((_("Atualizar"), self.reload), (_("Mostrar no Finder"), self.reveal), (_("Limpar histórico"), self.clear)):
+            b = QPushButton(text); b.clicked.connect(fn); bl.addWidget(b)
+        bl.addStretch(1); close = QPushButton(_("Fechar")); close.clicked.connect(self.accept); bl.addWidget(close)
+        lay.addLayout(bl); self.reload()
+
+    def reload(self, *a):
+        try: lines = log_path().read_text("utf-8", errors="replace").splitlines()[-5000:]
+        except Exception: lines = []
+        q = self.filter.text().strip().lower()
+        if q: lines = [l for l in lines if q in l.lower()]
+        self.text.setPlainText("\n".join(lines) if lines else _("(histórico vazio)"))
+        self.text.moveCursor(QTextCursor.End)
+
+    def reveal(self):
+        p = log_path()
+        if not p.exists(): p.touch()
+        try: subprocess.Popen(['open', '-R', str(p)])
+        except Exception: pass
+
+    def clear(self):
+        if QMessageBox.question(self, _("Limpar histórico"), _("Apagar todo o histórico?"),
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
+        try: log_path().write_text("", "utf-8")
+        except Exception: pass
+        self.reload()
+
+
+# ============================================================================= compactar / extrair
+
+def archive_stem(name):
+    ext = archive_ext(name)
+    return name[: -len(ext)] if ext else name
+
+
+def compress_local(worker, folder, names, archive, fmt):
+    import zipfile, tarfile
+    dest = os.path.join(folder, archive)
+    try:
+        if fmt == "zip":
+            with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+                for n in names:
+                    p = os.path.join(folder, n)
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        for root, dirs, files in os.walk(p):
+                            worker._check()
+                            rel_root = os.path.relpath(root, folder)
+                            if not files and not dirs: z.write(root, rel_root)
+                            for f in files:
+                                worker._check(); worker.progress.emit(0, 0, os.path.join(rel_root, f))
+                                z.write(os.path.join(root, f), os.path.join(rel_root, f))
+                    else:
+                        worker._check(); z.write(p, n)
+        else:
+            def flt(ti):
+                worker._check(); worker.progress.emit(0, 0, ti.name); return ti
+            with tarfile.open(dest, "w:gz") as t:
+                for n in names: t.add(os.path.join(folder, n), arcname=n, filter=flt)
+    except BaseException:
+        try: os.remove(dest)
+        except OSError: pass
+        raise
+    return _(f"Criado: {archive}")
+
+
+def extract_local(worker, archive_path, dest):
+    import zipfile, tarfile
+    os.makedirs(dest, exist_ok=True)
+    ext = archive_ext(archive_path)
+    if ext == ".zip":
+        with zipfile.ZipFile(archive_path) as z:
+            for m in z.infolist():
+                worker._check(); worker.progress.emit(0, 0, m.filename); z.extract(m, dest)   # zipfile já barra “../”
+    elif ext == ".gz":
+        import gzip
+        out = os.path.join(dest, os.path.basename(archive_path)[:-3])
+        with gzip.open(archive_path, "rb") as fi, open(out, "wb") as fo: shutil.copyfileobj(fi, fo)
+    else:
+        with tarfile.open(archive_path) as t:
+            base = os.path.realpath(dest)
+            inside = lambda p: p == base or p.startswith(base + os.sep)
+            safe_filter = hasattr(tarfile, "data_filter")        # Python 3.12+: filtro de segurança oficial
+            for m in t.getmembers():
+                worker._check(); worker.progress.emit(0, 0, m.name)
+                if safe_filter:
+                    try: t.extract(m, dest, filter="data")
+                    except tarfile.FilterError: pass               # caminho perigoso (“../”, link para fora): ignora
+                    continue
+                target = os.path.realpath(os.path.join(dest, m.name))
+                if not inside(target): continue
+                if m.issym() and not inside(os.path.realpath(os.path.join(os.path.dirname(target), m.linkname))): continue
+                if m.islnk() and not inside(os.path.realpath(os.path.join(dest, m.linkname))): continue
+                t.extract(m, dest)
+    return _(f"Extraído em: {dest}")
+
+
+_PY_ZIP = ("import sys,os,zipfile\n"
+           "z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED)\n"
+           "for p in sys.argv[2:]:\n"
+           " if os.path.isdir(p):\n"
+           "  for r,d,f in os.walk(p):\n"
+           "   for x in f: z.write(os.path.join(r,x))\n"
+           " else: z.write(p)\n"
+           "z.close()\n")
+
+
+def compress_remote(worker, ssh, folder, names, archive, fmt):
+    import shlex
+    q = shlex.quote; items = " ".join(q(n) for n in names)
+    if fmt == "zip":
+        cmd = (f"cd {q(folder)} && if command -v zip >/dev/null 2>&1; then zip -r -q -y {q(archive)} -- {items}; "
+               f"else python3 -c {q(_PY_ZIP)} {q(archive)} {items}; fi")
+    else:
+        cmd = f"cd {q(folder)} && tar -czf {q(archive)} -- {items}"
+    code, out, err = run_remote(ssh, cmd, worker)
+    if code != 0: raise RuntimeError((err or out).strip() or _(f"o servidor devolveu o código {code}"))
+    return _(f"Criado: {archive}")
+
+
+def extract_remote(worker, ssh, archive_path, dest):
+    import shlex
+    q = shlex.quote; ext = archive_ext(archive_path)
+    if ext == ".zip":
+        x = (f"if command -v unzip >/dev/null 2>&1; then unzip -o -q {q(archive_path)} -d {q(dest)}; "
+             f"else python3 -m zipfile -e {q(archive_path)} {q(dest)}; fi")
+    elif ext == ".gz":
+        out_name = posixpath.join(dest, posixpath.basename(archive_path)[:-3])
+        x = f"gzip -dc {q(archive_path)} > {q(out_name)}"
+    else:
+        flag = {".tar.gz": "z", ".tgz": "z", ".tar.bz2": "j", ".tbz2": "j", ".tar.xz": "J", ".txz": "J"}.get(ext, "")
+        x = f"tar -x{flag}f {q(archive_path)} -C {q(dest)}"
+    code, out, err = run_remote(ssh, f"mkdir -p {q(dest)} && {x}", worker)
+    if code != 0: raise RuntimeError((err or out).strip() or _(f"o servidor devolveu o código {code}"))
+    return _(f"Extraído em: {dest}")
+
+
+# ============================================================================= sincronizar pastas
+
+SYNC_SKIP = (".DS_Store",)
+
+
+def _list_local(path):
+    out = {}
+    for ent in os.scandir(path):
+        if ent.name in SYNC_SKIP or ent.name.endswith(PART_SUFFIX) or ent.is_symlink(): continue
+        st = ent.stat(follow_symlinks=False); isdir = ent.is_dir(follow_symlinks=False)
+        out[ent.name] = (isdir, 0 if isdir else st.st_size, st.st_mtime)
+    return out
+
+
+def _list_remote(sftp, path):
+    out = {}
+    for a in sftp.listdir_attr(path):
+        mode = a.st_mode or 0
+        if a.filename in SYNC_SKIP or a.filename.endswith(PART_SUFFIX) or stat.S_ISLNK(mode): continue
+        isdir = stat.S_ISDIR(mode)
+        out[a.filename] = (isdir, 0 if isdir else (a.st_size or 0), a.st_mtime or 0)
+    return out
+
+
+def compare_trees(list_src, list_dst, src_root, dst_root, j_src, j_dst, delete_extra, check=None, rel=""):
+    """Compara origem × destino. Devolve [(ação, caminho_relativo, é_pasta, tamanho)].
+    ação: 'new' (não existe no destino), 'changed' (tamanho ou data diferente), 'extra' (só no destino)."""
+    res = []
+    if check: check()
+    src = list_src(j_src(src_root, rel) if rel else src_root)
+    try: dst = list_dst(j_dst(dst_root, rel) if rel else dst_root)
+    except (IOError, OSError): dst = {}
+    for name, (isdir, size, mt) in sorted(src.items()):
+        r = f"{rel}/{name}" if rel else name
+        if name not in dst:
+            res.append(("new", r, isdir, size))
+        else:
+            d_isdir, d_size, d_mt = dst[name]
+            if isdir and d_isdir:
+                res += compare_trees(list_src, list_dst, src_root, dst_root, j_src, j_dst, delete_extra, check, r)
+            elif isdir != d_isdir:
+                res.append(("changed", r, isdir, size))
+            elif size != d_size or abs((mt or 0) - (d_mt or 0)) > 2:
+                res.append(("changed", r, isdir, size))
+    if delete_extra:
+        for name, (isdir, size, mt) in sorted(dst.items()):
+            if name not in src: res.append(("extra", f"{rel}/{name}" if rel else name, isdir, size))
+    return res
+
+
+class CompareWorker(QThread):
+    done = Signal(object, str)
+
+    def __init__(self, ssh, local_root, remote_root, upload, delete_extra):
+        super().__init__(); self.ssh = ssh; self.local_root = local_root; self.remote_root = remote_root
+        self.upload = upload; self.delete_extra = delete_extra; self._cancel = False
+
+    def run(self):
+        sftp = None
+        try:
+            sftp = self.ssh.open_sftp()
+            lj = lambda root, rel: os.path.join(root, *rel.split("/"))
+            rj = lambda root, rel: posixpath.join(root, rel)
+            ll = _list_local; rl = lambda p: _list_remote(sftp, p)
+            if self.upload:
+                res = compare_trees(ll, rl, self.local_root, self.remote_root, lj, rj, self.delete_extra)
+            else:
+                res = compare_trees(rl, ll, self.remote_root, self.local_root, rj, lj, self.delete_extra)
+            self.done.emit(res, "")
+        except Exception as e:
+            self.done.emit(None, str(e))
+        finally:
+            try:
+                if sftp: sftp.close()
+            except Exception: pass
+
+
+class SyncDialog(QDialog):
+    """Sincronizar pastas: compara computador × servidor e transfere só o que mudou."""
+
+    def __init__(self, session):
+        super().__init__(session.main); self.session = session; self.result = []; self.worker = None
+        self.setWindowTitle(_("Sincronizar pastas")); self.resize(820, 560)
+        lay = QVBoxLayout(self); form = QFormLayout()
+        self.local = QLineEdit(session.local_path)
+        pick = QPushButton("…"); pick.setFixedWidth(32); pick.clicked.connect(self._pick)
+        lrow = QHBoxLayout(); lrow.addWidget(self.local, 1); lrow.addWidget(pick)
+        self.remote = QLineEdit(session.remote_path)
+        self.direction = QComboBox()
+        self.direction.addItems([_("Computador → Servidor (enviar)"), _("Servidor → Computador (baixar)")])
+        self.delete_extra = QCheckBox(_("Apagar no destino o que não existe na origem"))
+        form.addRow(_("Pasta local"), lrow); form.addRow(_("Pasta no servidor"), self.remote)
+        form.addRow(_("Direção"), self.direction); form.addRow("", self.delete_extra)
+        lay.addLayout(form)
+        cmp_row = QHBoxLayout(); self.cmp_btn = QPushButton(_("Comparar")); self.cmp_btn.clicked.connect(self.compare)
+        self.summary = QLabel(_("Clique em “Comparar” para ver o que vai mudar.")); cmp_row.addWidget(self.cmp_btn)
+        cmp_row.addWidget(self.summary, 1); lay.addLayout(cmp_row)
+        self.tree = QTreeWidget(); self.tree.setColumnCount(3); self.tree.setRootIsDecorated(False)
+        self.tree.setHeaderLabels([_("Ação"), _("Caminho"), _("Tamanho")]); self.tree.setColumnWidth(0, 170)
+        self.tree.setColumnWidth(1, 470); lay.addWidget(self.tree, 1)
+        bl = QHBoxLayout(); bl.addStretch(1)
+        cancel = QPushButton(_("Cancelar")); cancel.clicked.connect(self.reject); bl.addWidget(cancel)
+        self.go = QPushButton(_("Sincronizar")); self.go.setEnabled(False); self.go.setDefault(True)
+        self.go.clicked.connect(self.run_sync); bl.addWidget(self.go); lay.addLayout(bl)
+        for w in (self.local, self.remote): w.textChanged.connect(self._invalidate)
+        self.direction.currentIndexChanged.connect(self._invalidate); self.delete_extra.toggled.connect(self._invalidate)
+
+    def _pick(self):
+        p = QFileDialog.getExistingDirectory(self, _("Escolher pasta local"), self.local.text())
+        if p: self.local.setText(p)
+
+    def _invalidate(self, *a):
+        self.go.setEnabled(False); self.tree.clear(); self.result = []
+        self.summary.setText(_("Clique em “Comparar” para ver o que vai mudar."))
+
+    def compare(self):
+        if not self.session.require_remote(): return
+        if not os.path.isdir(self.local.text()):
+            QMessageBox.warning(self, _("Sincronizar pastas"), _("A pasta local não existe.")); return
+        self.cmp_btn.setEnabled(False); self.summary.setText(_("Comparando…")); self.tree.clear()
+        self.worker = CompareWorker(self.session.ssh, self.local.text(), self.remote.text().rstrip("/") or "/",
+                                    self.direction.currentIndex() == 0, self.delete_extra.isChecked())
+        self.worker.done.connect(self._compared); keep_alive(self.worker); self.worker.start()
+
+    def _compared(self, res, err):
+        self.cmp_btn.setEnabled(True); self.worker = None
+        if res is None:
+            self.summary.setText(_(f"Erro: {err}")); return
+        self.result = res
+        labels = {"new": _("Novo"), "changed": _("Alterado"), "extra": _("Apagar no destino")}
+        for action, rel, isdir, size in res:
+            it = QTreeWidgetItem([labels[action] + (_(" (pasta)") if isdir else ""), rel, "" if isdir else human_size(size)])
+            it.setCheckState(0, Qt.Checked); it.setData(0, Qt.UserRole, (action, rel, isdir, size))
+            if action == "extra": it.setForeground(0, QBrush(QColor("#d33")))
+            self.tree.addTopLevelItem(it)
+        n = {k: sum(1 for r in res if r[0] == k) for k in ("new", "changed", "extra")}
+        self.summary.setText(_(f"{n['new']} novo(s) • {n['changed']} alterado(s) • {n['extra']} para apagar")
+                             if res else _("Tudo igual — nada para sincronizar."))
+        self.go.setEnabled(bool(res))
+
+    def run_sync(self):
+        chosen = [self.tree.topLevelItem(i).data(0, Qt.UserRole) for i in range(self.tree.topLevelItemCount())
+                  if self.tree.topLevelItem(i).checkState(0) == Qt.Checked]
+        if not chosen: return
+        if any(c[0] == "extra" for c in chosen) and QMessageBox.warning(
+                self, _("Confirmar exclusão"), _(f"{sum(1 for c in chosen if c[0] == 'extra')} item(ns) serão apagados no destino. Continuar?"),
+                QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        lroot = self.local.text(); rroot = self.remote.text().rstrip("/") or "/"; up = self.direction.currentIndex() == 0
+        jobs = []
+        for action, rel, isdir, size in chosen:
+            lp = os.path.join(lroot, *rel.split("/")); rp = posixpath.join(rroot, rel)
+            if action == "extra": jobs.append(('rdel' if up else 'ldel', rp if up else lp, None))
+            elif up: jobs.append(('up', lp, rp))
+            else: jobs.append(('down', rp, lp))
+        jobs.sort(key=lambda j: j[0] in ('rdel', 'ldel'))          # apagar só depois de transferir
+        title = _("Sincronizar → servidor") if up else _("Sincronizar → computador")
+        s = self.session
+        log_event(_("SINCRONIZOU"), f"{lroot} {'→' if up else '←'} {rroot} ({len(jobs)})", s.title)
+        s.main.queue.add(TransferEntry(s, title, jobs, on_done=lambda e, s=s: s.after_transfer(e)))
+        self.accept()
+
+
+# ============================================================================= área de transferência
+
+def clipboard_side():
+    """De onde vieram os itens na área de transferência: 'local' | 'remote' | 'finder' | None."""
+    return FileTree.parse_mime(QApplication.clipboard().mimeData())[1]
+
+
+def clipboard_is_cut(mime):
+    if mime is None or not mime.hasFormat(MIME_PATHS): return False
+    try: return bool(json.loads(bytes(mime.data(MIME_PATHS)).decode()).get("cut"))
+    except Exception: return False
 
 
 # ============================================================================= editor de texto
@@ -1616,6 +2455,7 @@ class EditorWindow(QMainWindow):
             return False
         self.edit.document().setModified(False)
         self.statusBar().showMessage(_(f"Salvo às {time.strftime('%H:%M:%S')}  •  {human_size(len(data))}"), 5000)
+        log_event(_("SALVOU"), self.path, self.session.title if self.side == "remote" else _("Computador local"))
         if self.side == "remote": self.session.load_remote(select=posixpath.basename(self.path))
         else: self.session.load_local(select=os.path.basename(self.path))
         return True
@@ -1716,6 +2556,42 @@ class PermissionsDialog(QDialog):
 
 # ============================================================================= árvore de arquivos
 
+SORT_ROLE = Qt.UserRole + 2
+SYNC_LISTING = False        # True = lista o servidor de forma síncrona (usado nos testes automáticos)
+
+
+class FileItem(QTreeWidgetItem):
+    """Linha do painel: ordena por nome/tamanho/data de verdade e mantém as pastas sempre no topo."""
+
+    def __lt__(self, other):
+        tree = self.treeWidget(); col = tree.sortColumn() if tree else 0
+        asc = tree.header().sortIndicatorOrder() == Qt.AscendingOrder if tree else True
+        a_dir, b_dir = bool(self.data(0, ISDIR_ROLE)), bool(other.data(0, ISDIR_ROLE))
+        if a_dir != b_dir: return a_dir if asc else b_dir
+        ka, kb = self.data(col, SORT_ROLE), other.data(col, SORT_ROLE)
+        if ka is None or kb is None or ka == kb:
+            return (self.data(0, SORT_ROLE) or "") < (other.data(0, SORT_ROLE) or "")
+        return ka < kb
+
+
+class ListWorker(QThread):
+    """Lista uma pasta do servidor sem travar a janela (canal SFTP só para listagens)."""
+    done = Signal(int, str, object, str)
+
+    def __init__(self, sftp, lock, gen, path):
+        super().__init__(); self.sftp = sftp; self.lock = lock; self.gen = gen; self.path = path
+
+    def run(self):
+        try:
+            with self.lock:
+                p = self.sftp.normalize(self.path)
+                attrs = self.sftp.listdir_attr(p)
+            self.done.emit(self.gen, p, attrs, "")
+        except Exception as e:
+            self.done.emit(self.gen, self.path, None, str(e) or e.__class__.__name__)
+
+
+
 class FileTree(QTreeWidget):
     """Painel com arrastar/soltar (inclusive em cima de pastas) e menu de contexto."""
 
@@ -1729,6 +2605,7 @@ class FileTree(QTreeWidget):
         self.customContextMenuRequested.connect(lambda pos: session.show_context_menu(self.side, pos))
         self.itemDoubleClicked.connect(lambda item, col: session.open_item(self.side, item))
         self.setColumnWidth(0, 300); self.setIconSize(QSize(18, 18))
+        self.setSortingEnabled(True); self.sortByColumn(0, Qt.AscendingOrder)   # clicar no cabeçalho ordena
 
     def selected_paths(self):
         return [it.data(0, PATH_ROLE) for it in self.selectedItems() if it.data(0, PATH_ROLE)]
@@ -1754,6 +2631,8 @@ class FileTree(QTreeWidget):
     @staticmethod
     def parse_mime(mime):
         """Retorna (sessão, lado_origem, [caminhos])."""
+        if mime is None:                     # área de transferência vazia
+            return None, None, []
         if mime.hasFormat(MIME_PATHS):
             try:
                 d = json.loads(bytes(mime.data(MIME_PATHS)).decode())
@@ -1797,6 +2676,14 @@ class FileTree(QTreeWidget):
         QTimer.singleShot(0, lambda: self.session.handle_drop(src, paths, self.side, dest))
 
     def keyPressEvent(self, e):
+        if e.matches(QKeySequence.Copy):
+            self.session.copy_selected(self.side); return
+        if e.matches(QKeySequence.Cut):
+            self.session.copy_selected(self.side, cut=True); return
+        if e.key() == Qt.Key_V and e.modifiers() & Qt.ControlModifier and e.modifiers() & Qt.AltModifier:
+            self.session.paste(self.side, move=True); return           # ⌥⌘V: mover para cá (como no Finder)
+        if e.matches(QKeySequence.Paste):
+            self.session.paste(self.side); return
         if e.key() in (Qt.Key_Delete, Qt.Key_Backspace):
             self.session.delete_selected(self.side); return
         if e.key() in (Qt.Key_Return, Qt.Key_Enter) and self.currentItem():
@@ -1812,7 +2699,10 @@ class Session(QWidget):
     def __init__(self, main):
         super().__init__(); self.main = main
         self.ssh = None; self.sftp = None; self.title = _("Sem conexão")
-        self.remote_path = '.'; self.local_path = str(Path.home()); self.transfers = []; self.editors = []
+        self.remote_path = '.'; self.local_path = str(Path.home()); self.editors = []
+        self.list_sftp = None; self.list_lock = threading.Lock(); self._list_gen = 0; self._list_worker = None
+        self._list_pending = None; self._ok_remote_path = None; self.remote_home = "/"
+        self._listed = {"local": None, "remote": None}
         layout = QVBoxLayout(self); layout.setContentsMargins(4, 4, 4, 4)
         split = QSplitter(Qt.Horizontal); layout.addWidget(split, 1)
 
@@ -1823,8 +2713,7 @@ class Session(QWidget):
         lh.addWidget(self._btn(_("Excluir"), lambda: self.delete_selected('local'), _("Excluir selecionados (⌫)")))
         lh.addWidget(self._btn("↑", self.local_up, _("Pasta acima")))
         ll.addLayout(lh)
-        self.local_label = QLabel(self.local_path); self.local_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        ll.addWidget(self.local_label)
+        self.local_label, self.local_filter = self._path_row(ll, 'local')
         self.local_tree = FileTree('local', self); ll.addWidget(self.local_tree, 1); split.addWidget(left)
 
         right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0); rh = QHBoxLayout()
@@ -1833,11 +2722,41 @@ class Session(QWidget):
         rh.addWidget(self._btn(_("Excluir"), lambda: self.delete_selected('remote'), _("Excluir selecionados no servidor (⌫)")))
         rh.addWidget(self._btn("↑", self.remote_up, _("Pasta acima")))
         rl.addLayout(rh)
-        self.remote_label = QLabel(_("Não conectado — use “Nova conexão” ou “Favoritos”"))
-        self.remote_label.setTextInteractionFlags(Qt.TextSelectableByMouse); rl.addWidget(self.remote_label)
+        self.remote_label, self.remote_filter = self._path_row(rl, 'remote')
+        self.remote_label.setPlaceholderText(_("Não conectado — use “Nova conexão” ou “Favoritos”")); self.remote_label.setReadOnly(True)
         self.remote_tree = FileTree('remote', self); rl.addWidget(self.remote_tree, 1); split.addWidget(right)
         split.setSizes([560, 560])
         self.load_local()
+
+    def _path_row(self, layout, side):
+        """Barra de caminho editável (Enter navega) + campo de filtro."""
+        row = QHBoxLayout()
+        path = QLineEdit(); path.setToolTip(_("Digite um caminho e tecle Enter"))
+        path.returnPressed.connect(lambda: self.path_entered(side))
+        flt = QLineEdit(); flt.setPlaceholderText(_("Filtrar…")); flt.setClearButtonEnabled(True); flt.setMaximumWidth(170)
+        flt.textChanged.connect(lambda _t: self.apply_filter(side))
+        row.addWidget(path, 1); row.addWidget(flt); layout.addLayout(row)
+        return path, flt
+
+    def apply_filter(self, side):
+        tree = self.tree(side); q = (self.local_filter if side == 'local' else self.remote_filter).text().strip().lower()
+        shown = 0
+        for i in range(tree.topLevelItemCount()):
+            it = tree.topLevelItem(i); hide = bool(q) and q not in (it.text(0) or "").lower()
+            it.setHidden(hide); shown += not hide
+        if q: self.status(_(f"{shown} item(ns) com “{q}”"))
+
+    def path_entered(self, side):
+        if side == 'local':
+            p = os.path.expanduser(self.local_label.text().strip())
+            if os.path.isdir(p): self.local_path = os.path.abspath(p); self.load_local()
+            else:
+                self.status(_(f"Pasta não encontrada: {p}")); self.local_label.setText(self.local_path)
+        else:
+            if not self.sftp: return
+            p = self.remote_label.text().strip() or "/"
+            if p == "~" or p.startswith("~/"): p = self.remote_home.rstrip("/") + p[1:]
+            self.load_remote(path=p)
 
     def _btn(self, text, slot, tip=None):
         b = QPushButton(text); b.clicked.connect(slot)
@@ -1864,11 +2783,17 @@ class Session(QWidget):
             sftp = client.open_sftp()
         except Exception as e:
             QApplication.restoreOverrideCursor()
+            log_event(_("FALHA AO CONECTAR"), f"{user}@{host}:{port} — {str(e).splitlines()[0] if str(e) else e}", title or host)
             QMessageBox.critical(self, _("Falha na conexão"),
                                  _(f"Não foi possível conectar em {host}.\n\n{e}"))
             return False
         QApplication.restoreOverrideCursor()
         self.ssh = client; self.sftp = sftp
+        try: self.list_sftp = client.open_sftp()            # canal separado para listar sem travar
+        except Exception: self.list_sftp = None
+        try: self.remote_home = sftp.normalize('.')
+        except Exception: self.remote_home = "/"
+        self.remote_label.setReadOnly(False); self._ok_remote_path = None
         self.remote_path = sftp.normalize('.')
         if remote_dir:
             try:
@@ -1880,23 +2805,29 @@ class Session(QWidget):
         self.remote_title.setText(_(f"<b>Servidor:</b> {user}@{host}:{port}"))
         self.title_changed.emit(self, self.title); self.load_remote()
         self.status(_(f"Conectado a {user}@{host}:{port}"))
+        log_event(_("CONECTOU"), f"{user}@{host}:{port}", self.title)
         return True
 
     def disconnect(self, ask=True):
         if not self.close_editors(remote_only=True): return False
-        running = [t for t in self.transfers if t.isRunning()]
-        if running:
+        active = self.main.queue.active(self)
+        if active:
             if ask and QMessageBox.question(self, _("Transferências em andamento"),
-                                            _(f"Há {len(running)} transferência(s) em andamento nesta conexão. Cancelar e desconectar?"),
+                                            _(f"Há {len(active)} transferência(s) em andamento nesta conexão. Cancelar e desconectar?"),
                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return False
-            for t in running: t.cancel()
-            for t in running: t.wait(5000)
+            self.main.queue.cancel_session(self)
+        if self._list_worker is not None:
+            try: self._list_worker.wait(3000)
+            except RuntimeError: pass
+        was = self.title if self.sftp else None
         try:
+            if self.list_sftp: self.list_sftp.close()
             if self.sftp: self.sftp.close()
             if self.ssh: self.ssh.close()
         except Exception: pass
-        self.sftp = self.ssh = None; self.title = _("Sem conexão")
+        if was: log_event(_("DESCONECTOU"), "", was)
+        self.sftp = self.ssh = self.list_sftp = None; self.title = _("Sem conexão"); self.remote_label.setReadOnly(True)
         self.remote_title.setText(_("<b>Servidor remoto</b>"))
         self.remote_label.setText(_("Não conectado")); self.remote_tree.clear()
         self.title_changed.emit(self, self.title)
@@ -1911,38 +2842,89 @@ class Session(QWidget):
         path = QFileDialog.getExistingDirectory(self, _("Escolher pasta local"), self.local_path)
         if path: self.local_path = path; self.load_local()
 
-    def _add_row(self, tree, name, path, isdir, size, extra):
-        row = QTreeWidgetItem([name, size, extra])
+    def _add_row(self, tree, name, path, isdir, size, mtime, extra):
+        row = FileItem([name, "" if isdir else human_size(size), extra])
         icons = Icons.get()
         row.setIcon(0, icons.local(path, isdir) if tree.side == 'local' else icons.remote(name, isdir))
         row.setData(0, PATH_ROLE, path); row.setData(0, ISDIR_ROLE, isdir)
+        row.setData(0, SORT_ROLE, name.lower()); row.setData(1, SORT_ROLE, -1 if isdir else int(size or 0))
+        row.setData(2, SORT_ROLE, float(mtime or 0))
         if isdir: row.setToolTip(0, _("Solte arquivos aqui para colocá-los dentro desta pasta"))
         tree.addTopLevelItem(row); return row
 
+    def _fill(self, side, entries, select):
+        """entries: [(nome, caminho, é_pasta, tamanho, mtime, texto_extra)]"""
+        tree = self.tree(side); tree.setSortingEnabled(False); tree.clear()
+        chosen = None
+        for name, path, isdir, size, mtime, extra in entries:
+            row = self._add_row(tree, name, path, isdir, size, mtime, extra)
+            if select and name == select: chosen = row
+        tree.setSortingEnabled(True)
+        if chosen is not None: tree.setCurrentItem(chosen); tree.scrollToItem(chosen)
+        cur = self.current_dir(side)
+        flt = self.local_filter if side == 'local' else self.remote_filter
+        if self._listed[side] != cur and flt.text(): flt.blockSignals(True); flt.clear(); flt.blockSignals(False)
+        self._listed[side] = cur
+        self.apply_filter(side)
+
     def load_local(self, select=None):
-        self.local_label.setText(self.local_path); self.local_tree.clear()
-        try: items = sorted(os.scandir(self.local_path), key=lambda x: (not x.is_dir(follow_symlinks=False), x.name.lower()))
-        except Exception as e: self.status(_(f"Erro ao listar pasta local: {e}")); return
+        self.local_label.setText(self.local_path)
+        try: items = list(os.scandir(self.local_path))
+        except Exception as e: self.status(_(f"Erro ao listar pasta local: {e}")); self.local_tree.clear(); return
+        entries = []
         for ent in items:
+            if ent.name.endswith(PART_SUFFIX): continue
             try:
                 isdir = ent.is_dir(follow_symlinks=False); st = ent.stat(follow_symlinks=False)
-                row = self._add_row(self.local_tree, ent.name, ent.path, isdir, '' if isdir else human_size(st.st_size),
-                                    time.strftime('%d/%m/%Y %H:%M', time.localtime(st.st_mtime)))
-                if select and ent.name == select: self.local_tree.setCurrentItem(row)
+                entries.append((ent.name, ent.path, isdir, st.st_size, st.st_mtime,
+                                time.strftime('%d/%m/%Y %H:%M', time.localtime(st.st_mtime))))
             except OSError: pass
+        self._fill('local', entries, select)
 
-    def load_remote(self, select=None):
-        self.remote_tree.clear()
-        if not self.sftp: return
-        self.remote_label.setText(self.remote_path)
-        try: attrs = sorted(self.sftp.listdir_attr(self.remote_path), key=lambda a: (not stat.S_ISDIR(a.st_mode or 0), a.filename.lower()))
-        except Exception as e: self.status(_(f"Erro ao listar servidor: {e}")); return
+    def load_remote(self, select=None, path=None):
+        """Lista a pasta do servidor em segundo plano (a janela não trava em pastas grandes/servidores lentos)."""
+        if not self.sftp: self.remote_tree.clear(); return
+        path = path or self.remote_path
+        self._list_gen += 1; req = (self._list_gen, path, select)
+        if SYNC_LISTING or self.list_sftp is None:
+            try:
+                p = self.sftp.normalize(path); attrs = self.sftp.listdir_attr(p)
+                self._list_done(req[0], p, attrs, "", select)
+            except Exception as e:
+                self._list_done(req[0], path, None, str(e), select)
+            return
+        if self._list_worker is not None: self._list_pending = req; return
+        self._start_list(req)
+
+    def _start_list(self, req):
+        gen, path, select = req
+        self.remote_tree.setCursor(Qt.BusyCursor); self.remote_label.setText(path); self.status(_("Carregando…"))
+        w = ListWorker(self.list_sftp, self.list_lock, gen, path); self._list_worker = w
+        w.done.connect(lambda g, p, a, err, select=select: self._list_done(g, p, a, err, select))
+        keep_alive(w); w.start()
+
+    def _list_done(self, gen, path, attrs, err, select=None):
+        self._list_worker = None; self.remote_tree.unsetCursor()
+        if self._list_pending is not None:
+            req = self._list_pending; self._list_pending = None
+            if req[0] != gen: self._start_list(req); return
+        if gen != self._list_gen or not self.sftp: return
+        if attrs is None:
+            self.status(_(f"Erro ao listar servidor: {err}"))
+            if self._ok_remote_path and self._ok_remote_path != path:
+                self.remote_path = self._ok_remote_path
+            self.remote_label.setText(self.remote_path); return
+        self.remote_path = path; self._ok_remote_path = path; self.remote_label.setText(path)
+        entries = []
         for a in attrs:
+            if a.filename.endswith(PART_SUFFIX): continue
             mode = a.st_mode or 0; isdir = stat.S_ISDIR(mode)
             mt = time.strftime('%d/%m/%Y %H:%M', time.localtime(a.st_mtime)) if a.st_mtime else ''
-            row = self._add_row(self.remote_tree, a.filename, posixpath.join(self.remote_path, a.filename), isdir,
-                                '' if isdir else human_size(a.st_size or 0), f"{mt}  {stat.filemode(mode)}".strip())
-            if select and a.filename == select: self.remote_tree.setCurrentItem(row)
+            entries.append((a.filename, posixpath.join(path, a.filename), isdir, a.st_size or 0, a.st_mtime or 0,
+                            f"{mt}  {stat.filemode(mode)}".strip()))
+        self._fill('remote', entries, select)
+        if self.main.statusBar().currentMessage() == _("Carregando…"):   # não apaga mensagens mais importantes
+            self.status(_(f"{len(entries)} item(ns) • {path}"))
 
     def refresh(self): self.load_local(); self.load_remote()
 
@@ -1979,6 +2961,18 @@ class Session(QWidget):
             a.setEnabled(remote_ok)
         a = menu.addAction(_("Nova pasta aqui…"), lambda: self.create_folder(side)); a.setEnabled(remote_ok)
         a = menu.addAction(_("Novo arquivo de texto aqui…"), lambda: self.create_file(side)); a.setEnabled(remote_ok)
+        menu.addSeparator()
+        if sel:
+            menu.addAction(_("Copiar") + "\t⌘C", lambda: self.copy_selected(side))
+            menu.addAction(_("Recortar") + "\t⌘X", lambda: self.copy_selected(side, cut=True))
+        can_paste = bool(FileTree.parse_mime(QApplication.clipboard().mimeData())[2]) and remote_ok
+        a = menu.addAction(_("Colar") + "\t⌘V", lambda: self.paste(side)); a.setEnabled(can_paste)
+        a = menu.addAction(_("Mover para cá") + "\t⌥⌘V", lambda: self.paste(side, move=True))
+        a.setEnabled(can_paste and clipboard_side() != 'finder')
+        if len(sel) == 1 and sel[0].data(0, ISDIR_ROLE):
+            a = menu.addAction(_("Colar dentro de “%s”") % posixpath.basename(sel[0].data(0, PATH_ROLE)),
+                               lambda: self.paste(side, sel[0].data(0, PATH_ROLE)))
+            a.setEnabled(can_paste)
         if sel:
             paths = [i.data(0, PATH_ROLE) for i in sel]
             menu.addSeparator()
@@ -1992,6 +2986,12 @@ class Session(QWidget):
                 if side == 'local': menu.addAction(_("Abrir com o app padrão"), lambda: self.open_default(paths[0]))
             files = [i.data(0, PATH_ROLE) for i in sel if not i.data(0, ISDIR_ROLE)]
             if files: menu.addAction(_("🔐  Permissões…"), lambda: self.change_permissions(side, files))
+            menu.addSeparator()
+            menu.addAction(_("🗜  Compactar…"), lambda: self.compress(side, paths))
+            if len(sel) == 1 and not sel[0].data(0, ISDIR_ROLE) and archive_ext(posixpath.basename(paths[0])):
+                stem = archive_stem(posixpath.basename(paths[0]))
+                menu.addAction(_("📦  Extrair aqui"), lambda: self.extract(side, paths[0], False))
+                menu.addAction(_("📦  Extrair em “%s/”") % stem, lambda: self.extract(side, paths[0], True))
             if len(sel) == 1: menu.addAction(_("Renomear…"), lambda: self.rename_item(side, sel[0]))
             if side == 'local': menu.addAction(_("Mostrar no Finder"), lambda: self.reveal_in_finder(paths[0]))
             menu.addSeparator()
@@ -2072,7 +3072,7 @@ class Session(QWidget):
                 self.sftp.mkdir(target)
         except Exception as e:
             QMessageBox.critical(self, _("Não foi possível criar a pasta"), str(e)); return
-        self.status(_(f"Pasta criada: {target}"))
+        self.status(_(f"Pasta criada: {target}")); log_event(_("CRIOU PASTA"), target, self._where(side))
         same = parent_dir == self.current_dir(side)
         (self.load_local if side == 'local' else self.load_remote)(select=name if same else None)
 
@@ -2096,7 +3096,7 @@ class Session(QWidget):
                 with self.sftp.open(target, 'w'): pass
         except Exception as e:
             QMessageBox.critical(self, _("Não foi possível criar o arquivo"), str(e)); return
-        self.status(_(f"Arquivo criado: {target}"))
+        self.status(_(f"Arquivo criado: {target}")); log_event(_("CRIOU ARQUIVO"), target, self._where(side))
         same = parent_dir == self.current_dir(side)
         (self.load_local if side == 'local' else self.load_remote)(select=name if same else None)
         self.edit_file(side, target)
@@ -2134,6 +3134,7 @@ class Session(QWidget):
         (self.load_local if side == 'local' else self.load_remote)(select=names[0] if len(names) == 1 else None)
         if errors: QMessageBox.critical(self, _("Permissões não alteradas"), "\n".join(errors[:15]))
         else: self.status(_(f"Permissões {new_mode:03o} aplicadas em {len(paths)} arquivo(s)."))
+        for p in paths: log_event(_("PERMISSÕES"), f"{new_mode:03o} {p}", self._where(side))
 
     def rename_item(self, side, item):
         if side == 'remote' and not self.require_remote(): return
@@ -2148,10 +3149,10 @@ class Session(QWidget):
         try:
             if side == 'local':
                 if os.path.lexists(new): raise FileExistsError(_(f"Já existe um item chamado “{name}”."))
-                os.rename(old, new); self.load_local(select=name)
+                os.rename(old, new); self.load_local(select=name); log_event(_("RENOMEOU"), f"{old} → {new}", self._where(side))
             else:
                 if self.remote_exists(new): raise FileExistsError(_(f"Já existe um item chamado “{name}” no servidor."))
-                self.sftp.rename(old, new); self.load_remote(select=name)
+                self.sftp.rename(old, new); self.load_remote(select=name); log_event(_("RENOMEOU"), f"{old} → {new}", self._where(side))
         except Exception as e:
             QMessageBox.critical(self, _("Não foi possível renomear"), str(e))
 
@@ -2176,8 +3177,8 @@ class Session(QWidget):
         try:
             for p in paths:
                 try:
-                    if side == 'local': self.local_delete(p)
-                    else: self.remote_rmtree(p)
+                    if side == 'local': self.local_delete(p); log_event(_("MANDOU PARA O LIXO"), p, self._where(side))
+                    else: self.remote_rmtree(p); log_event(_("EXCLUIU"), p, self._where(side))
                 except Exception as e: errors.append(f"{p}: {e}")
         finally:
             QApplication.restoreOverrideCursor()
@@ -2210,7 +3211,7 @@ class Session(QWidget):
             self.sftp.remove(path)
 
     # ------------------------------------------------------------------ arrastar e soltar
-    def handle_drop(self, src_side, paths, dest_side, dest_dir):
+    def handle_drop(self, src_side, paths, dest_side, dest_dir, move=False):
         if dest_side == 'remote' and not self.require_remote(): return
         finder = src_side == 'finder'
         if finder: src_side = 'local'
@@ -2218,74 +3219,229 @@ class Session(QWidget):
             if finder: self.copy_local_items(paths, dest_dir)
             else: self.move_items(dest_side, paths, dest_dir)
             return
-        self.start_transfer(paths, src_side, dest_side, dest_dir)
+        self.start_transfer(paths, src_side, dest_side, dest_dir, move=move)
 
-    def _confirm_overwrite(self, name, where):
-        return QMessageBox.question(
-            self, _("Destino existente"),
-            _(f"Já existe um item chamado “{name}” {where}.\n"
-            "Pastas serão mescladas e arquivos com o mesmo nome poderão ser substituídos. Continuar?"),
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+    def _where(self, side):
+        return self.title if side == 'remote' else _("Computador local")
 
-    def start_transfer(self, paths, source_side, dest_side, dest_dir):
+    def _conflict(self, name, where, memo):
+        """Item com o mesmo nome no destino → 'replace' | 'both' | 'skip'. “Manter os dois” é o padrão
+        (o original fica e a cópia ganha “ cópia” no nome). memo guarda “aplicar a todos”."""
+        if memo.get("all"): return memo["all"]
+        box = QMessageBox(QMessageBox.Question, _("Destino existente"),
+                          _(f"Já existe um item chamado “{name}” {where}."), QMessageBox.NoButton, self)
+        rb = box.addButton(_("Substituir"), QMessageBox.DestructiveRole)
+        kb = box.addButton(_("Manter os dois"), QMessageBox.AcceptRole)
+        box.addButton(_("Pular"), QMessageBox.RejectRole)
+        box.setDefaultButton(kb)
+        cb = QCheckBox(_("Aplicar a todos")); box.setCheckBox(cb)
+        box.exec()
+        choice = {id(rb): "replace", id(kb): "both"}.get(id(box.clickedButton()), "skip")
+        if cb.isChecked(): memo["all"] = choice
+        return choice
+
+    # compatibilidade (testes antigos chamam _ask_conflict)
+    def _ask_conflict(self, name, where):
+        return self._conflict(name, where, {})
+
+    def start_transfer(self, paths, source_side, dest_side, dest_dir, move=False):
         if not self.require_remote(): return
-        jobs = []
+        jobs = []; memo = {}
         for path in paths:
             if source_side == 'local':
                 name = os.path.basename(path.rstrip(os.sep)); target = posixpath.join(dest_dir, name)
-                if self.remote_exists(target) and not self._confirm_overwrite(name, _("no servidor")): continue
+                if self.remote_exists(target):
+                    choice = self._conflict(name, _("no servidor"), memo)
+                    if choice == "skip": continue
+                    if choice == "both":
+                        target = posixpath.join(dest_dir, unique_copy_name(name, lambda n: self.remote_exists(posixpath.join(dest_dir, n))))
                 jobs.append(('up', path, target))
             else:
                 name = posixpath.basename(path.rstrip('/')); target = os.path.join(dest_dir, name)
-                if os.path.lexists(target) and not self._confirm_overwrite(name, _("no computador")): continue
+                if os.path.lexists(target):
+                    choice = self._conflict(name, _("no computador"), memo)
+                    if choice == "skip": continue
+                    if choice == "both":
+                        target = os.path.join(dest_dir, unique_copy_name(name, lambda n: os.path.lexists(os.path.join(dest_dir, n))))
                 jobs.append(('down', path, target))
-        if not jobs: return
-        worker = TransferWorker(self.ssh, jobs); self.transfers.append(worker)
-        verb = _("Enviando para") if source_side == 'local' else _("Baixando de")
-        title = f"{verb} {self.title}"
+        if not jobs: return None
+        if move: verb = _("Movendo para") if source_side == 'local' else _("Movendo de")
+        else: verb = _("Enviando para") if source_side == 'local' else _("Baixando de")
+        names = ", ".join(posixpath.basename(j[1].rstrip('/')) for j in jobs[:3]) + ("…" if len(jobs) > 3 else "")
+        entry = TransferEntry(self, f"{verb} {self.title}: {names}", jobs, move=move,
+                              on_done=lambda e, s=self: s.after_transfer(e))
+        self.main.queue.add(entry); self.main.show_transfers()
+        self.status(f"{verb} {self.title}…")
+        return entry
 
-        def finish(ok, msg, count, worker=worker):
-            if worker in self.transfers: self.transfers.remove(worker)
-            self.status(_(f"{msg} — {count} arquivo(s) • {self.title}"))
-            if self.sftp: self.refresh()
-            else: self.load_local()
-            if not ok and msg.startswith(_("Erro")): QMessageBox.critical(self, _("Falha na transferência"), msg)
-
-        dlg = TransferDialog(title, worker, finish, self.main); dlg.show()
-        worker.finished.connect(worker.deleteLater)
-        worker.start(); self.status(f"{title}…")
+    def after_transfer(self, entry):
+        self.status(_(f"{entry.message} — {entry.files} arquivo(s) • {self.title}"))
+        if self.sftp: self.refresh()
+        else: self.load_local()
 
     def move_items(self, side, paths, dest_dir):
+        """Mover dentro do mesmo painel (arrastar para uma pasta, recortar/colar)."""
         j = os.path if side == 'local' else posixpath
-        errors = []; moved = 0
+        errors = []; moved = 0; memo = {}
         for p in paths:
             name = j.basename(p.rstrip('/')); target = j.join(dest_dir, name)
-            np_, nd = p.rstrip('/'), dest_dir.rstrip('/')
-            if nd == np_ or nd.startswith(np_ + '/') or j.dirname(np_) == nd: continue
+            np_, nd = p.rstrip('/'), dest_dir.rstrip('/') or '/'
+            if nd == np_ or nd.startswith(np_ + '/'): continue
+            if j.dirname(np_) == nd: continue                       # já está nessa pasta
+            exists = os.path.lexists(target) if side == 'local' else self.remote_exists(target)
             try:
-                if side == 'local':
-                    if os.path.lexists(target): raise FileExistsError(_("já existe no destino"))
-                    shutil.move(p, target)
-                else:
-                    if self.remote_exists(target): raise FileExistsError(_("já existe no destino"))
-                    self.sftp.rename(p, target)
-                moved += 1
+                if exists:
+                    choice = self._conflict(name, _("nesta pasta") if side == 'local' else _("no servidor"), memo)
+                    if choice == "skip": continue
+                    if choice == "both":
+                        ex = (lambda n: os.path.lexists(os.path.join(dest_dir, n))) if side == 'local' else \
+                             (lambda n: self.remote_exists(posixpath.join(dest_dir, n)))
+                        target = j.join(dest_dir, unique_copy_name(name, ex))
+                    else:
+                        if side == 'local': local_remove(target)
+                        else: self.remote_rmtree(target)
+                if side == 'local': shutil.move(p, target)
+                else: self.sftp.rename(p, target)
+                moved += 1; log_event(_("MOVEU"), f"{p} → {target}", self._where(side))
             except Exception as e: errors.append(f"{name}: {e}")
         (self.load_local if side == 'local' else self.load_remote)()
         if errors: QMessageBox.warning(self, _("Alguns itens não foram movidos"), "\n".join(errors[:15]))
         if moved: self.status(_(f"{moved} item(ns) movido(s) para {dest_dir}"))
 
+    # ------------------------------------------------------------------ copiar / recortar / colar
+    def copy_selected(self, side, cut=False):
+        paths = self.tree(side).selected_paths()
+        if not paths: return
+        mime = QMimeData()
+        mime.setData(MIME_PATHS, json.dumps({"session": id(self), "side": side, "paths": paths, "cut": cut}).encode())
+        if side == 'local' and not cut: mime.setUrls([QUrl.fromLocalFile(p) for p in paths])   # ⌘V no Finder também
+        mime.setText("\n".join(paths))
+        QApplication.clipboard().setMimeData(mime)
+        if cut: self.status(_(f"{len(paths)} item(ns) recortado(s) — ⌘V para mover"))
+        else: self.status(_(f"{len(paths)} item(ns) copiado(s)"))
+
+    def paste(self, side, dest_dir=None, move=None):
+        if side == 'remote' and not self.require_remote(): return
+        mime = QApplication.clipboard().mimeData()
+        sess, src, paths = FileTree.parse_mime(mime)
+        if not paths:
+            self.status(_("Nada para colar.")); return
+        cut = clipboard_is_cut(mime)
+        move = cut if move is None else (move and src != 'finder')
+        dest_dir = dest_dir or self.current_dir(side)
+        if src == 'remote' and sess != id(self):
+            QMessageBox.information(self, _("Copiar entre servidores"),
+                                    _("Itens de outra aba (outro servidor) não podem ser colados aqui. Baixe para o computador primeiro."))
+            return
+        if src in ('local', 'finder'):
+            if side == 'local': (self.move_items('local', paths, dest_dir) if move else self.copy_local_items(paths, dest_dir))
+            else: self.start_transfer(paths, 'local', 'remote', dest_dir, move=move)
+        else:
+            if side == 'local': self.start_transfer(paths, 'remote', 'local', dest_dir, move=move)
+            elif move: self.move_items('remote', paths, dest_dir)
+            else: self.remote_copy(paths, dest_dir)
+        if cut: QApplication.clipboard().clear()                      # recortar vale uma vez só
+
+    def remote_copy(self, paths, dest_dir):
+        """Copia itens dentro do mesmo servidor (feito no próprio servidor, sem passar pelo Mac)."""
+        jobs = []; memo = {}
+        for p in paths:
+            name = posixpath.basename(p.rstrip('/')); target = posixpath.join(dest_dir, name)
+            np_, nd = p.rstrip('/'), dest_dir.rstrip('/') or '/'
+            if nd == np_ or nd.startswith(np_ + '/'):
+                QMessageBox.warning(self, _("Falha ao copiar"), _(f"Não dá para copiar “{name}” para dentro dela mesma."))
+                continue
+            if target.rstrip('/') == np_:
+                target = posixpath.join(dest_dir, unique_copy_name(name, lambda n: self.remote_exists(posixpath.join(dest_dir, n))))
+            elif self.remote_exists(target):
+                choice = self._conflict(name, _("no servidor"), memo)
+                if choice == "skip": continue
+                if choice == "both":
+                    target = posixpath.join(dest_dir, unique_copy_name(name, lambda n: self.remote_exists(posixpath.join(dest_dir, n))))
+            jobs.append(('rcopy', p, target))
+        if not jobs: return None
+        entry = TransferEntry(self, f"{_('Copiando em')} {self.title}", jobs, on_done=lambda e, s=self: s.after_transfer(e))
+        self.main.queue.add(entry); self.main.show_transfers()
+        return entry
+
     def copy_local_items(self, paths, dest_dir):
+        memo = {}
         for p in paths:
             name = os.path.basename(p.rstrip(os.sep)); target = os.path.join(dest_dir, name)
-            if os.path.abspath(target) == os.path.abspath(p): continue
-            if os.path.lexists(target) and not self._confirm_overwrite(name, "nesta pasta"): continue
+            if os.path.abspath(target) == os.path.abspath(p):          # colar na mesma pasta → "nome cópia"
+                target = os.path.join(dest_dir, unique_copy_name(name, lambda n: os.path.lexists(os.path.join(dest_dir, n))))
+            elif os.path.lexists(target):
+                choice = self._conflict(name, _("nesta pasta"), memo)
+                if choice == "skip": continue
+                if choice == "both":
+                    target = os.path.join(dest_dir, unique_copy_name(name, lambda n: os.path.lexists(os.path.join(dest_dir, n))))
             try:
                 if os.path.isdir(p) and not os.path.islink(p): shutil.copytree(p, target, symlinks=True, dirs_exist_ok=True)
                 else: shutil.copy2(p, target, follow_symlinks=False)
+                log_event(_("COPIOU"), f"{p} → {target}", _("Computador local"))
             except Exception as e: QMessageBox.critical(self, _("Falha ao copiar"), f"{name}: {e}")
         self.load_local()
 
+    # ------------------------------------------------------------------ compactar / extrair
+    def compress(self, side, paths):
+        if side == 'remote' and not self.require_remote(): return
+        if not paths: return
+        j = os.path if side == 'local' else posixpath
+        folder = j.dirname(paths[0].rstrip('/')) or '/'
+        names = [j.basename(p.rstrip('/')) for p in paths]
+        fmts = ["ZIP (.zip)", "TAR.GZ (.tar.gz)"]
+        fmt_label, ok = QInputDialog.getItem(self, _("Compactar"), _("Formato:"), fmts, 0, False)
+        if not ok: return
+        fmt = "zip" if fmt_label.startswith("ZIP") else "tar.gz"
+        base = names[0] if len(names) == 1 else _("Arquivos")
+        name, ok = QInputDialog.getText(self, _("Compactar"), _("Nome do arquivo compactado:"), text=f"{base}.{fmt}")
+        if not ok or not valid_name(name.strip()): return
+        name = name.strip()
+        exists = (lambda n: os.path.lexists(os.path.join(folder, n))) if side == 'local' else \
+                 (lambda n: self.remote_exists(posixpath.join(folder, n)))
+        if exists(name): name = unique_copy_name(name if not name.endswith(".tar.gz") else name, exists)
+        where = self._where(side)
+        if side == 'local':
+            fn = lambda w: compress_local(w, folder, names, name, fmt)
+        else:
+            ssh = self.ssh; fn = lambda w: compress_remote(w, ssh, folder, names, name, fmt)
+
+        def done(e, s=self):
+            if e.status == "done": log_event(_("COMPACTOU"), f"{', '.join(names)} → {j.join(folder, name)}", where)
+            s.after_task(e, side, name)
+        entry = TransferEntry(self, _(f"Compactando {name}"), task=fn, on_done=done)
+        self.main.queue.add(entry); self.main.show_transfers()
+
+    def extract(self, side, path, into_folder):
+        if side == 'remote' and not self.require_remote(): return
+        j = os.path if side == 'local' else posixpath
+        folder = j.dirname(path); fname = j.basename(path)
+        dest = folder
+        if into_folder:
+            stem = archive_stem(fname)
+            exists = (lambda n: os.path.lexists(os.path.join(folder, n))) if side == 'local' else \
+                     (lambda n: self.remote_exists(posixpath.join(folder, n)))
+            dest = j.join(folder, stem if not exists(stem) else unique_copy_name(stem, exists))
+        where = self._where(side)
+        if side == 'local': fn = lambda w: extract_local(w, path, dest)
+        else:
+            ssh = self.ssh; fn = lambda w: extract_remote(w, ssh, path, dest)
+
+        def done(e, s=self):
+            if e.status == "done": log_event(_("EXTRAIU"), f"{path} → {dest}", where)
+            s.after_task(e, side, j.basename(dest) if into_folder else None)
+        entry = TransferEntry(self, _(f"Extraindo {fname}"), task=fn, on_done=done)
+        self.main.queue.add(entry); self.main.show_transfers()
+
+    def after_task(self, entry, side, select=None):
+        self.status(entry.message)
+        if side == 'local': self.load_local(select=select)
+        elif self.sftp: self.load_remote(select=select)
+
+    # ------------------------------------------------------------------ sincronizar
+    def open_sync(self):
+        if not self.require_remote(): return
+        SyncDialog(self).exec()
 
 
 class AboutDialog(QDialog):
@@ -2349,6 +3505,13 @@ class MainWindow(QMainWindow):
             act.triggered.connect(lambda _c=False, code=code: self.change_language(code))
             group.addAction(act); lang_menu.addAction(act)
         self.favorites = Favorites()
+        self.queue = TransferQueue(self); self.queue_window = None
+        self.queue.changed.connect(self._queue_changed)
+        tools = self.menuBar().addMenu(_("Ferramentas"))
+        for text, keys, slot in ((_("Transferências"), "Ctrl+Shift+T", self.show_transfers),
+                                 (_("Sincronizar pastas…"), "Ctrl+Shift+S", lambda: self.session().open_sync()),
+                                 (_("Histórico (log)…"), "Ctrl+Shift+L", lambda: LogDialog(self).exec())):
+            act = QAction(text, self); act.setShortcut(QKeySequence(keys)); act.triggered.connect(slot); tools.addAction(act)
         root = QWidget(); self.setCentralWidget(root); layout = QVBoxLayout(root)
 
         top = QHBoxLayout()
@@ -2359,6 +3522,9 @@ class MainWindow(QMainWindow):
         self.fav_menu = QMenu(self); self.fav_btn.clicked.connect(self._show_fav_menu)
         top.addWidget(self.fav_btn)
         top.addStretch(1)
+        self.queue_btn = QPushButton(_("⇅ Transferências")); self.queue_btn.clicked.connect(self.show_transfers)
+        top.addWidget(self.queue_btn)
+        sync_btn = QPushButton(_("Sincronizar…")); sync_btn.clicked.connect(lambda: self.session().open_sync()); top.addWidget(sync_btn)
         for text, slot in ((_("Console SSH"), lambda: self.session().open_console()),
                            (_("Atualizar"), lambda: self.session().refresh()),
                            (_("Desconectar"), lambda: self.session().disconnect())):
@@ -2380,6 +3546,15 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(_("Cada aba é uma conexão. Arraste entre os painéis ou solte em cima de uma pasta. "
                                      "Botão direito para mais opções."))
+
+    # --- fila de transferências
+    def show_transfers(self):
+        if self.queue_window is None: self.queue_window = TransferQueueWindow(self.queue, self)
+        self.queue_window.show(); self.queue_window.raise_()
+
+    def _queue_changed(self):
+        n = len(self.queue.active())
+        self.queue_btn.setText(_("⇅ Transferências") + (f" ({n})" if n else ""))
 
     # --- abas
     def session(self): return self.tabs.currentWidget()
@@ -2493,18 +3668,27 @@ class MainWindow(QMainWindow):
 
     def restart_app(self):
         if not self.close(): return          # usuário cancelou (transferências/edições pendentes)
-        if getattr(sys, "frozen", False): QProcess.startDetached(sys.executable, sys.argv[1:])
-        else: QProcess.startDetached(sys.executable, sys.argv)
+        bundle = app_bundle_path()
+        if bundle:
+            # abre pelo LaunchServices (igual a dar dois cliques no Finder): assim o macOS reconhece o app
+            # e aplica as permissões dele (Rede Local etc.). Abrir o executável direto perde essas permissões.
+            QProcess.startDetached("/usr/bin/open", ["-n", bundle])
+        elif getattr(sys, "frozen", False):
+            QProcess.startDetached(sys.executable, sys.argv[1:])
+        else:
+            QProcess.startDetached(sys.executable, sys.argv)
         QApplication.quit()
 
     def closeEvent(self, event):
-        running = sum(1 for i in range(self.tabs.count()) for t in self.tabs.widget(i).transfers if t.isRunning())
+        running = len(self.queue.active())
         if running and QMessageBox.question(self, _("Sair"), _(f"Há {running} transferência(s) em andamento. Cancelar e sair?"),
                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             event.ignore(); return
         for i in range(self.tabs.count()):
             if not self.tabs.widget(i).close_editors(): event.ignore(); return
         for i in range(self.tabs.count()): self.tabs.widget(i).disconnect(ask=False)
+        if self.queue_window: self.queue_window.close()
+        wait_all_threads()
         event.accept()
 
 
@@ -2531,6 +3715,8 @@ def main():
     if "--self-test" in sys.argv: sys.exit(self_test())
     app = QApplication(sys.argv); app.setApplicationName(APP_NAME); app.setApplicationVersion(APP_VERSION)
     app.setWindowIcon(app_icon())
+    import atexit
+    app.aboutToQuit.connect(wait_all_threads); atexit.register(wait_all_threads)
     global LANG
     LANG = load_language()
     if LANG == "pt":   # botões padrão do Qt (Yes/No/Cancel…) em português
