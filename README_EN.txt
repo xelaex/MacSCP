@@ -87,8 +87,27 @@ QUICK TIPS
 - Favorites: save server, user and password. After the
   first login, Touch ID is all you need.
 - Drag files between the panels, or drop them onto a folder.
+- Copy and paste: Cmd + C / Cmd + V (or right-click). Works in the
+  same panel, between computer and server, inside the server and
+  with Finder.
 - Right-click: new folder, new file, edit, rename, permissions,
   delete...
+- Cut and move: Cmd + X then Cmd + V (or Cmd + Option + V to move what
+  you copied).
+- Same name at the destination: Replace / Keep both / Skip. The default
+  is "Keep both" (the copy becomes "name copy.ext").
+- Path bar: type a path (e.g. /var/www or ~) and press Enter. Next to it,
+  "Filter…" shows only matching items.
+- Sorting: click Name, Size or Modified (folders always on top).
+- Compress / extract: right-click > Compress… (zip or tar.gz) or
+  Extract here / Extract to folder. Works locally and on the server.
+- Transfers: queue window ("⇅ Transfers" button) with pause, resume and
+  cancel. Interrupted transfers (pause, network drop) resume where they
+  stopped. Files keep their original date.
+- Sync…: compares a local folder with a server folder and transfers only
+  what is new or changed (optionally deleting extras).
+- History: Tools > History (log)… shows everything uploaded, downloaded,
+  deleted, renamed, etc.
 - Double-click a text file to open the editor (Cmd + S saves it
   directly on the server).
 - SSH Console: full terminal. Typing "exit" closes the window.

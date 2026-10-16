@@ -81,8 +81,28 @@ DICAS RÁPIDAS
 - Nova conexão: botão "+ Nova conexão" (cada servidor abre em uma aba).
 - Favoritos: salve servidor, usuário e senha. Depois é só usar o Touch ID.
 - Arraste arquivos entre os painéis, ou solte em cima de uma pasta.
+- Copiar e colar: Cmd + C / Cmd + V (ou botão direito). Funciona no
+  mesmo painel, entre computador e servidor, dentro do servidor e
+  com o Finder.
 - Botão direito: nova pasta, novo arquivo, editar, renomear,
   permissões, excluir...
+- Recortar e mover: Cmd + X e depois Cmd + V (ou Cmd + Option + V para
+  mover o que foi copiado).
+- Mesmo nome no destino: o app pergunta Substituir / Manter os dois /
+  Pular. O padrão é "Manter os dois" (a cópia vira "nome cópia.ext").
+- Barra de caminho: digite o caminho (ex.: /var/www ou ~) e tecle Enter.
+  Ao lado, o campo "Filtrar…" mostra só o que tiver aquele texto.
+- Ordenar: clique em Nome, Tamanho ou Modificado (pastas sempre no topo).
+- Compactar / extrair: botão direito > Compactar… (zip ou tar.gz) ou
+  Extrair aqui / Extrair em pasta. Funciona no computador e no servidor.
+- Transferências: janela com a fila (botão "⇅ Transferências"). Dá para
+  pausar, retomar e cancelar. Uma transferência interrompida (pausa,
+  queda da rede) continua de onde parou. Os arquivos mantêm a data
+  original.
+- Sincronizar…: compara uma pasta do computador com uma do servidor e
+  transfere só o que é novo ou mudou (opcional: apagar sobras).
+- Histórico: Ferramentas > Histórico (log)… mostra tudo o que foi
+  enviado, baixado, apagado, renomeado etc.
 - Dois cliques em um arquivo de texto abrem o editor (Cmd + S salva
   direto no servidor).
 - Console SSH: terminal completo. O comando "exit" fecha a janela.

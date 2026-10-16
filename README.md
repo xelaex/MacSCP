@@ -2,6 +2,17 @@
 
 Esta é uma aplicação desktop independente. **Não inicia servidor web e não precisa de Docker, Flask ou navegador.**
 
+## Novidades 1.4.0
+
+- Fila de transferências com pausar / retomar / cancelar e **retomada** de uploads e downloads interrompidos
+- Arquivos e pastas mantêm a **data original**
+- **Sincronizar pastas** (computador ⇄ servidor), com prévia do que vai mudar
+- **Compactar / extrair** (zip, tar.gz) no computador e no servidor
+- **Recortar e mover** (⌘X / ⌘V, ⌥⌘V) e conflito de nomes com “Manter os dois” como padrão
+- Barra de **caminho editável**, **filtro** e **ordenação** por coluna
+- Listagem de pastas **sem travar** a janela
+- **Histórico (log)** de tudo o que foi feito
+
 ## Gerar o aplicativo
 
 Passo a passo completo em português: veja o **[LEIAME.txt](LEIAME.txt)**.  
